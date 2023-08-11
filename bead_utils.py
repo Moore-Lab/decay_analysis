@@ -171,4 +171,19 @@ def plot_correlation_with_drive(dat, template, attr, skip_drive=False, lp_freq=2
         plt.show()
 
     return np.median(corr_vec_rms)
+
+
+def labview_time_to_datetime(lt):
+    ### Convert a labview timestamp (i.e. time since 1904) to a 
+    ### more useful format (pytho datetime object)
+    
+    ## first get number of seconds between Unix time and Labview's
+    ## arbitrary starting time
+    lab_time = dt.datetime(1904, 1, 1, 0, 0, 0)
+    nix_time = dt.datetime(1970, 1, 1, 0, 0, 0)
+    delta_seconds = (nix_time-lab_time).total_seconds()
+
+    lab_dt = dt.datetime.fromtimestamp( lt - delta_seconds)
+    
+    return lab_dt
     
