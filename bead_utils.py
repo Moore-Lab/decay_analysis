@@ -150,6 +150,52 @@ def correlation_template(dat, attr, make_plots=False, lp_freq=20):
 
     return template*window
 
+def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
+    ## take noise files and find the average PSD for use in the optimal filter
+
+    J = 0
+    nfiles = 0
+    for nf in noise_files:
+        cdat, attr, _ = get_data(nf)
+
+        if(nfft < 0):
+            nfft_to_use = len(cdat[:,x_idx])
+        else:
+            nfft_to_use = nfft
+
+        cf, cpsd = sp.welch(cdat[:,x_idx], fs=attr['Fsamp'], nperseg=nfft_to_use)
+
+        J += cpsd
+        nfiles += 1
+
+    J /= nfiles
+
+    ## expected for resonator params
+    eta = 2*res_pars[1]/res_pars[0]
+    omega0, gamma = res_pars[0]/np.sqrt(1 - eta**2), 2*res_pars[1] ## factor of two by definition
+    omega = 2*np.pi*cf
+    sphere_tf = gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2)
+    res_pos = np.argmin( np.abs(omega0-omega) )
+    sphere_tf *= J[res_pos]/sphere_tf[res_pos]
+
+    Jout = 1.0*J
+    Jout[J/sphere_tf > 5] = 1e20
+
+    plt.figure()
+    plt.semilogy(cf, J, 'k', label="Measured")
+    plt.semilogy(cf, sphere_tf, "-", color='orange', label="Expected")
+    plt.semilogy(cf, Jout, 'b', label="Filter")
+    plt.xlim(0,200)
+    gpts = (cf > 1) & (cf<200)
+    plt.ylim(0.1*np.min(J[gpts]), 10*np.max(J[gpts]))
+    plt.xlabel("Frequency [Hz]")
+    plt.ylabel("PSD [V$^2$/Hz]")
+    plt.legend(loc="upper right")
+    plt.show()
+
+    noise_dict = {"freq": cf, "J": Jout}
+
+    return noise_dict
 
 def plot_correlation_with_drive(dat, template, attr, skip_drive=False, lp_freq=20, make_plots=False):
 
@@ -463,6 +509,7 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[]):
     
     pulse_dict = {}
     fit_dict = {}
+    fit_vals = []
 
     for impulse_amp in calib_dict.keys():
 
@@ -498,6 +545,10 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[]):
             fit_dict[impulse_amp] = impulse_response(tvec, *bp)
         else:
             bp = [0,0,0,0]
+            bc = np.zeros((len(bp), len(bp)))
+
+        ## save fit parameters as well
+        fit_vals.append( [impulse_amp, bp[1], np.sqrt(bc[1,1]), bp[2], np.sqrt(bc[2,2])] )
 
         if(make_plots):
             
@@ -509,7 +560,7 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[]):
             plt.ylabel("Normalized amplitude [arb units]")
             plt.show()
 
-    return pulse_dict, fit_dict
+    return pulse_dict, fit_dict, np.array(fit_vals)
 
 def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], make_plots=False):
     ## simple time domain correlation between template and data
@@ -613,9 +664,8 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
 
     return filt_dict
 
-def matched_filt(calib_dict, template_dict, make_plots=False):
-    ## simple filter ignoring noise spectum
-
+def optimal_filt(calib_dict, template_dict, noise_dict, make_plots=False):
+    ## optimally filter including noise spectrum
     filt_dict = {}
 
     for impulse_amp in calib_dict.keys():
