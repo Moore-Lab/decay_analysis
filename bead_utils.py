@@ -1,4 +1,4 @@
-import glob, os, h5py
+import glob, os, h5py, re
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal as sp
@@ -8,6 +8,10 @@ import datetime as dt
 import matplotlib.dates
 from scipy.special import erf
 import scipy.stats
+
+## columns in the data files
+x_idx, y_idx, z_idx = 0, 1, 2
+drive_idx = 10
 
 
 def get_data(fname, gain_error=1.0):
@@ -225,6 +229,12 @@ def sfunc_step(t, A1, A2, delta, omega0, t0):
     o1[t > t0] = A2*np.sin(omega0*t[t>t0] + delta)
     return o1
 
+def impulse_response(t, A, omega0, gamma, t0):
+    outvec = np.zeros_like(t)
+    gpts = t>t0
+    outvec[gpts] = A*np.exp(-(t[gpts]-t0)*gamma)*np.sin(omega0*(t[gpts]-t0))
+    return outvec
+
 def plot_impulse(dat, template, attr, res_pars, trange=[0, np.inf], skip_drive=False, lp_freq=20, make_plots=False, two_panel=True, fname=""):
 
     corr_vec = sp.correlate(dat[:,0], template, mode='same')
@@ -415,3 +425,176 @@ def plot_impulse(dat, template, attr, res_pars, trange=[0, np.inf], skip_drive=F
         plt.show()
 
     return np.median(corr_vec_rms)
+
+def parse_impulse_amplitude(input_string):
+    pattern = r'(\d+(\.\d+)?)\s*MeV'
+
+    # Use re.search to find the match in the input string
+    match = re.search(pattern, input_string)
+    if match:
+        # Extract the matched number as a float
+        number = float(match.group(1))
+        return number
+    else:
+        return None
+
+
+def find_crossing_indices(signal, threshold):
+    """
+    Find the indices where a signal crosses a threshold (both above and below).
+
+    Parameters:
+    - signal (list or numpy array): The input signal.
+    - threshold (float): The threshold value.
+
+    Returns:
+    - rising_edges (numpy array): Indices where the signal crosses above the threshold.
+    - falling_edges (numpy array): Indices where the signal crosses below the threshold.
+    """
+    above_threshold = signal >= threshold
+    below_threshold = signal < threshold
+
+    rising_edges = np.where(above_threshold & ~np.roll(above_threshold, 1))[0]
+    falling_edges = np.where(below_threshold & ~np.roll(below_threshold, 1))[0]
+
+    return rising_edges, falling_edges
+
+def get_average_template(calib_dict, make_plots=False, fit_pars=[]):
+    
+    pulse_dict = {}
+    fit_dict = {}
+
+    for impulse_amp in calib_dict.keys():
+
+        curr_files = calib_dict[impulse_amp]
+
+        curr_temp = 0
+        for fname in curr_files:
+            cdat, attr, _ = get_data(fname)
+
+            ## find the impulse times
+            drive_file = cdat[:,drive_idx]
+            impulse_times, _ = find_crossing_indices(drive_file/np.max(drive_file), 0.5)
+            window_length = 4000
+
+            for time_idx in impulse_times:
+
+                ## make sure the full impulse is contained
+                if(time_idx + window_length/2 >= len(cdat[:,x_idx]) or 
+                   time_idx < window_length/2):
+                    continue
+                sidx = int(time_idx-window_length/2)
+                eidx = int(time_idx+window_length/2)
+                curr_temp += cdat[sidx:eidx,x_idx]
+
+        curr_temp -= np.median(curr_temp[:int(window_length/4)]) #baseline sub
+        curr_temp /= np.max(curr_temp) ## normalize to unity amplitude
+        pulse_dict[impulse_amp] = curr_temp
+
+        ## also fit to a damped harmonic oscillator
+        tvec = np.arange(len(curr_temp))/attr['Fsamp']
+        if(len(fit_pars)>0):
+            bp, bc = curve_fit(impulse_response, tvec, curr_temp, p0=fit_pars)
+            fit_dict[impulse_amp] = impulse_response(tvec, *bp)
+        else:
+            bp = [0,0,0,0]
+
+        if(make_plots):
+            
+            plt.figure()
+            plt.plot(tvec, curr_temp)
+            plt.plot(tvec, impulse_response(tvec, *bp))
+            plt.title("Impulse amplitude = %d MeV"%impulse_amp)
+            plt.xlabel("Time (s)")
+            plt.ylabel("Normalized amplitude [arb units]")
+            plt.show()
+
+    return pulse_dict, fit_dict
+
+def correlation_filt(calib_dict, template_dict, f0=40, bandpass=[], notch_list = [], make_plots=False):
+    ## simple time domain correlation between template and data
+    filt_dict = {}
+
+    for impulse_amp in calib_dict.keys():
+
+        curr_files = calib_dict[impulse_amp]
+        curr_template = template_dict[impulse_amp]
+        filt_dict[impulse_amp] = []
+
+        for fname in curr_files:
+            cdat, attr, _ = get_data(fname)
+
+            xdata = cdat[:,x_idx]
+
+            nyquist = attr['Fsamp']/2
+            ## coarse bandpass pre filter if desired
+            if(len(bandpass)>0):
+                filtconsts = np.array(bandpass)/nyquist # normalized to Nyquist
+                b,a = sp.butter(3,filtconsts, btype='bandpass')
+                xdata = sp.filtfilt(b,a,xdata)
+
+            for notch in notch_list:
+                filtconsts = np.array(notch)/nyquist # normalized to Nyquist
+                b,a = sp.butter(3,filtconsts, btype='bandstop')
+                xdata = sp.filtfilt(b,a,xdata)
+
+            corr_data = sp.correlate(xdata, curr_template, mode='same')
+            bcorr, acorr = sp.butter(3,f0/(5*nyquist), btype='lowpass')
+            corr_data = np.sqrt(sp.filtfilt(bcorr, acorr, corr_data**2))
+
+
+            impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
+            impulse_cent = []
+            for impr, impf in zip(impulse_rise, impulse_fall):
+                impulse_cent.append(int((impr+impf)/2))
+            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_data[impulse_cent]))
+
+            if(make_plots):
+                plt.figure(figsize=(15,3))
+                impulse_times, _ = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
+                plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
+                plt.plot(corr_data/5)
+                plt.xlim(0,3e5)
+                plt.ylim(0,2)
+                plt.title(impulse_amp)
+
+                plt.figure(figsize=(15,3))
+                fp, psd = sp.welch(cdat[:,x_idx], nperseg=2**16, fs=attr['Fsamp'])
+                fp_filt, psd_filt = sp.welch(xdata, nperseg=2**16, fs=attr['Fsamp'])
+                plt.semilogy(fp, psd)
+                plt.semilogy(fp_filt, psd_filt)
+                plt.xlim(0,100)
+                mv = np.max(psd_filt)
+                plt.ylim([1e-7*mv, 2*mv])
+                plt.show()
+
+    return filt_dict
+
+def matched_filt(calib_dict, template_dict, make_plots=False):
+    ## simple filter ignoring noise spectum
+
+    filt_dict = {}
+
+    for impulse_amp in calib_dict.keys():
+
+        curr_files = calib_dict[impulse_amp]
+        curr_template = template_dict[impulse_amp]
+        stilde = np.fft.rfft(curr_template)
+
+
+        for fname in curr_files:
+            cdat, attr, _ = get_data(fname)
+
+            xdata = cdat[:,x_idx]
+
+            xtilde = np.fft.rfft(xdata)[np.newaxis]
+            
+            norm_freq = np.fft.rfftfreq(len(xdata))
+            phase_shift = np.exp(-2*np.pi*1j*norm_freq)[np.newaxis]
+
+            print(np.shape(phase_shift.T), np.shape(xtilde))
+            fac1 = np.matmul(phase_shift.T, xtilde)
+            print(np.shape(fac1), np.shape(stilde))
+            opt_filt = np.matmul(fac1, np.conjugate(stilde))
+            print(np.shape(opt_filt))
+            break
