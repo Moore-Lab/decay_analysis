@@ -633,7 +633,6 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
             bcorr, acorr = sp.butter(3,f0/(5*nyquist), btype='lowpass')
             corr_data = np.sqrt(sp.filtfilt(bcorr, acorr, corr_data**2))
 
-
             impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
             impulse_cent = []
             for impr, impf in zip(impulse_rise, impulse_fall):
@@ -664,7 +663,7 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
 
     return filt_dict
 
-def optimal_filt(calib_dict, template_dict, noise_dict, make_plots=False):
+def optimal_filt(calib_dict, template_dict, noise_dict, time_offset=0, make_plots=False):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
@@ -673,21 +672,57 @@ def optimal_filt(calib_dict, template_dict, noise_dict, make_plots=False):
         curr_files = calib_dict[impulse_amp]
         curr_template = template_dict[impulse_amp]
         stilde = np.fft.rfft(curr_template)
+        sfreq = np.fft.rfftfreq(len(curr_template),d=1e-4)
 
+        J = np.interp(sfreq, noise_dict['freq'], noise_dict['J'])
 
+        ## sharp bandpass
+        #J = np.ones_like(J)*1e20
+        #bpts = (sfreq < 1) | (sfreq > 100)
+        bpts = (sfreq < 5) | (sfreq > 100)
+        J[bpts] = 1e20
+        phi = stilde/J
+
+        phi_t = np.fft.irfft(phi)
+        phi_t = phi_t/np.max(phi_t)
+
+        plt.figure()
+        plt.plot(phi_t)
+        plt.plot(curr_template)
+        plt.show()
+
+        filt_dict[impulse_amp] = []
         for fname in curr_files:
             cdat, attr, _ = get_data(fname)
 
             xdata = cdat[:,x_idx]
+            corr_data = np.abs(sp.correlate(xdata, phi_t, mode='same'))
 
-            xtilde = np.fft.rfft(xdata)[np.newaxis]
-            
-            norm_freq = np.fft.rfftfreq(len(xdata))
-            phase_shift = np.exp(-2*np.pi*1j*norm_freq)[np.newaxis]
+            impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
+            impulse_cent = []
+            for impr, impf in zip(impulse_rise, impulse_fall):
+                cidx = int((impr+impf)/2) + time_offset
+                if(cidx > len(xdata)): break
+                impulse_cent.append(cidx)
 
-            print(np.shape(phase_shift.T), np.shape(xtilde))
-            fac1 = np.matmul(phase_shift.T, xtilde)
-            print(np.shape(fac1), np.shape(stilde))
-            opt_filt = np.matmul(fac1, np.conjugate(stilde))
-            print(np.shape(opt_filt))
-            break
+            corr_vals = []
+            corr_idx = []
+            wind=30
+            for ic in impulse_cent:
+                current_search = corr_data[(ic-wind):(ic+wind)]
+                corr_vals.append(np.max(current_search))
+                corr_idx.append(ic-wind+np.argmax(current_search))
+            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
+
+            if(make_plots):
+                sfac = 1/10
+                plt.figure(figsize=(15,3))
+                plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
+                plt.plot(np.abs(corr_data*sfac))
+                plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
+                #plt.xlim(0,3e5)
+                plt.xlim(0,2e4)
+                plt.ylim(0,2)
+                plt.title("opt filt: " + str(impulse_amp))
+
+    return filt_dict
