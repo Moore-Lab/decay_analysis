@@ -8,6 +8,7 @@ import datetime as dt
 import matplotlib.dates
 from scipy.special import erf
 import scipy.stats
+from natsort import natsorted
 
 ## columns in the data files
 x_idx, y_idx, z_idx = 0, 1, 2
@@ -472,8 +473,8 @@ def plot_impulse(dat, template, attr, res_pars, trange=[0, np.inf], skip_drive=F
 
     return np.median(corr_vec_rms)
 
-def parse_impulse_amplitude(input_string):
-    pattern = r'(\d+(\.\d+)?)\s*MeV'
+def parse_impulse_amplitude(input_string, label="MeV"):
+    pattern = r'(\d+(\.\d+)?)\s*' + label
 
     # Use re.search to find the match in the input string
     match = re.search(pattern, input_string)
@@ -484,6 +485,19 @@ def parse_impulse_amplitude(input_string):
     else:
         return None
 
+def assemble_file_dict(path_to_use, base_path, dict_to_use={}):
+
+    for curr_path in path_to_use:
+        curr_file_list = natsorted(glob.glob(os.path.join(base_path, curr_path, "**/*.h5"), recursive=True))
+
+        for file in curr_file_list:
+            impulse_amp = parse_impulse_amplitude(file, label='mV')
+            if impulse_amp in dict_to_use.keys():
+                dict_to_use[impulse_amp].append(file)
+            else:
+                dict_to_use[impulse_amp] = [file,]
+    
+    return dict_to_use
 
 def find_crossing_indices(signal, threshold):
     """
@@ -562,14 +576,13 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[]):
 
     return pulse_dict, fit_dict, np.array(fit_vals)
 
-def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], make_plots=False):
+def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], pulse_data=False, make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
     for impulse_amp in calib_dict.keys():
 
         curr_files = calib_dict[impulse_amp]
-        curr_template = template_dict[impulse_amp]
         filt_dict[impulse_amp] = []
 
         for fname in curr_files:
@@ -583,11 +596,9 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
             xdata = sp.filtfilt(b,a,xdata)
 
             impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
-            impulse_cent = []
-            for impr, impf in zip(impulse_rise, impulse_fall):
-                cidx = int((impr+impf)/2) + time_offset
-                if(cidx > len(xdata)): break
-                impulse_cent.append(cidx)
+            
+            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
+
             filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], np.abs(xdata[impulse_cent])))
 
             if(make_plots):
@@ -596,20 +607,23 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
                 plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
                 plt.plot(np.abs(xdata)*sfac)
                 plt.plot(impulse_cent, np.abs(xdata[impulse_cent])*sfac, 'ro')
-                plt.xlim(0,2e4)
+                #plt.xlim(0,2e5)
+                plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
                 plt.ylim(0,2)
                 plt.title(impulse_amp)
 
     return filt_dict
 
-def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[], notch_list = [], make_plots=False):
+def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[], notch_list = [], pulse_data=True, make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
+
+    biggest_pulse = np.max( np.fromiter(template_dict.keys(), dtype=float) )
+    curr_template = template_dict[biggest_pulse]
 
     for impulse_amp in calib_dict.keys():
 
         curr_files = calib_dict[impulse_amp]
-        curr_template = template_dict[impulse_amp]
         filt_dict[impulse_amp] = []
 
         for fname in curr_files:
@@ -633,10 +647,9 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
             bcorr, acorr = sp.butter(3,f0/(5*nyquist), btype='lowpass')
             corr_data = np.sqrt(sp.filtfilt(bcorr, acorr, corr_data**2))
 
-            impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
-            impulse_cent = []
-            for impr, impf in zip(impulse_rise, impulse_fall):
-                impulse_cent.append(int((impr+impf)/2))
+
+            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
+
             filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_data[impulse_cent]))
 
             if(make_plots):
@@ -663,14 +676,44 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
 
     return filt_dict
 
-def optimal_filt(calib_dict, template_dict, noise_dict, time_offset=0, make_plots=False):
+def get_impulse_cents(cdat, fs, time_offset=0, pulse_data=True, drive_freq = 120):
+
+    xdata = cdat[:,0]
+
+    impulse_cent = []
+    if(pulse_data):
+        ## search for the pulses
+        impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
+        for impr, impf in zip(impulse_rise, impulse_fall):
+            cidx = int((impr+impf)/2) + time_offset
+            if(cidx > len(xdata)): break
+            impulse_cent.append(cidx)
+    else:
+        ## assume this is stepped sine wave data and find the times for that
+        buffer =  int(5*fs/drive_freq)
+        b,a = sp.butter(3, drive_freq/(fs/2), btype='low')
+        ddat = cdat[:,drive_idx]
+        ddat -= np.median(ddat)
+        filtered_drive = sp.filtfilt(b,a,ddat**2)
+        impulse_rise, impulse_fall = find_crossing_indices(filtered_drive/np.max(filtered_drive[buffer:-buffer]), 0.5)             
+        for impr in impulse_rise:
+            ## skip edge effects
+            if(impr < buffer  or impr > (len(xdata)-buffer)): continue
+            impulse_cent.append( impr + time_offset)
+
+    return impulse_cent
+
+def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, make_plots=False):
     ## optimally filter including noise spectrum
     filt_dict = {}
+
+    biggest_pulse = np.max( np.fromiter(template_dict.keys(), dtype=float) )
+    curr_template = template_dict[biggest_pulse]
 
     for impulse_amp in calib_dict.keys():
 
         curr_files = calib_dict[impulse_amp]
-        curr_template = template_dict[impulse_amp]
+
         stilde = np.fft.rfft(curr_template)
         sfreq = np.fft.rfftfreq(len(curr_template),d=1e-4)
 
@@ -686,10 +729,11 @@ def optimal_filt(calib_dict, template_dict, noise_dict, time_offset=0, make_plot
         phi_t = np.fft.irfft(phi)
         phi_t = phi_t/np.max(phi_t)
 
-        plt.figure()
-        plt.plot(phi_t)
-        plt.plot(curr_template)
-        plt.show()
+        if(make_plots):
+            plt.figure()
+            plt.plot(phi_t)
+            plt.plot(curr_template)
+            plt.show()
 
         filt_dict[impulse_amp] = []
         for fname in curr_files:
@@ -698,12 +742,7 @@ def optimal_filt(calib_dict, template_dict, noise_dict, time_offset=0, make_plot
             xdata = cdat[:,x_idx]
             corr_data = np.abs(sp.correlate(xdata, phi_t, mode='same'))
 
-            impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
-            impulse_cent = []
-            for impr, impf in zip(impulse_rise, impulse_fall):
-                cidx = int((impr+impf)/2) + time_offset
-                if(cidx > len(xdata)): break
-                impulse_cent.append(cidx)
+            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
 
             corr_vals = []
             corr_idx = []
@@ -715,14 +754,16 @@ def optimal_filt(calib_dict, template_dict, noise_dict, time_offset=0, make_plot
             filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
 
             if(make_plots):
+                fstr = str.split(fname,'/')[-1]
                 sfac = 1/10
                 plt.figure(figsize=(15,3))
                 plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
                 plt.plot(np.abs(corr_data*sfac))
                 plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
                 #plt.xlim(0,3e5)
-                plt.xlim(0,2e4)
+                #plt.xlim(0,2e4)
+                plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
                 plt.ylim(0,2)
-                plt.title("opt filt: " + str(impulse_amp))
+                plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict
