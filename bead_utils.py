@@ -576,7 +576,9 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[]):
 
     return pulse_dict, fit_dict, np.array(fit_vals)
 
-def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], pulse_data=False, make_plots=False):
+def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], 
+                  omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=False, 
+                  make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
@@ -591,6 +593,11 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
             xdata = cdat[:,x_idx]
 
             nyquist = attr['Fsamp']/2
+
+            if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
+                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=False)     
+                xdata -= step_impulse
+
             filtconsts = np.array(bandpass)/nyquist # normalized to Nyquist
             b,a = sp.butter(3,filtconsts, btype='bandpass')
             xdata = sp.filtfilt(b,a,xdata)
@@ -614,7 +621,9 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
 
     return filt_dict
 
-def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[], notch_list = [], pulse_data=True, make_plots=False):
+def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[], notch_list = [], 
+                     omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=True, 
+                     make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
@@ -632,6 +641,11 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
             xdata = cdat[:,x_idx]
 
             nyquist = attr['Fsamp']/2
+
+            if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
+                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=False)     
+                xdata -= step_impulse
+
             ## coarse bandpass pre filter if desired
             if(len(bandpass)>0):
                 filtconsts = np.array(bandpass)/nyquist # normalized to Nyquist
@@ -703,7 +717,45 @@ def get_impulse_cents(cdat, fs, time_offset=0, pulse_data=True, drive_freq = 120
 
     return impulse_cent
 
-def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, make_plots=False):
+def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False):
+                xdata = cdat[:,x_idx]
+                ## get the drive frequency (normalized template)
+                ddata = cdat[:,drive_idx]
+                ddata -= np.mean(ddata)
+                bpf = [0.5/(fs/2), 1000/(fs/2)]
+                b, a = sp.butter(1, bpf, btype='bandpass')
+                ddata = sp.filtfilt(b, a, ddata)
+                ddata = ddata/np.max(ddata)
+                
+                ddata_tilde = np.fft.rfft(ddata)
+                drive_psd = np.abs(ddata_tilde)**2
+                drive_freq_vec = np.fft.rfftfreq(len(ddata), d=1/fs)
+                drive_freq = drive_freq_vec[np.argmax(drive_psd)]
+
+                drive_wind = 2 ## window around drive frequency to keep
+                bpf = [5/(fs/2), 200/(fs/2)]
+                b, a = sp.butter(1, bpf, btype='bandpass')
+                xdata_drive = sp.filtfilt(b,a,xdata)
+
+                omega_vec = 2*np.pi*drive_freq_vec
+                xtilde = ddata_tilde/(omega0**2 - omega_vec**2 + 1j*gamma*omega_vec)
+                xdrive_inv = np.fft.irfft(xtilde)
+                scale_func = lambda xdata, A: A*xdrive_inv
+
+                best_scale, scale_err = curve_fit(scale_func, 0, xdata-np.median(xdata), p0=[1,])
+
+                if(make_plots):
+                    plt.figure(figsize=(12,5))
+                    plt.plot(xdata_drive)
+                    plt.plot(best_scale*xdrive_inv)
+                    #plt.plot(xdata-np.median(xdata))
+                    plt.xlim(0,2e5)
+                    plt.show()
+                
+                return best_scale*xdrive_inv
+
+def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
+                 omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, make_plots=False):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
@@ -738,11 +790,17 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
         filt_dict[impulse_amp] = []
         for fname in curr_files:
             cdat, attr, _ = get_data(fname)
-
+            fs = attr['Fsamp']
             xdata = cdat[:,x_idx]
+
+            if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
+                step_impulse = predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False)     
+                xdata -= step_impulse
+
+
             corr_data = np.abs(sp.correlate(xdata, phi_t, mode='same'))
 
-            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
+            impulse_cent = get_impulse_cents(cdat, fs, time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
 
             corr_vals = []
             corr_idx = []
