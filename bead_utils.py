@@ -9,10 +9,11 @@ import matplotlib.dates
 from scipy.special import erf
 import scipy.stats
 from natsort import natsorted
+import matplotlib.dates as mdates
 
 ## columns in the data files
 x_idx, y_idx, z_idx = 0, 1, 2
-drive_idx = 10
+drive_idx = 8 ## for data starting 9/27/2023
 
 
 def get_data(fname, gain_error=1.0):
@@ -32,7 +33,7 @@ def get_data(fname, gain_error=1.0):
             print("Warning, got no keys for: ", fname)
             dat = []
             attribs = {}
-            f = []
+            f = None
     else:
         dat = np.loadtxt(fname, skiprows = 5, usecols = [2, 3, 4, 5])
         attribs = {}
@@ -117,6 +118,42 @@ def plot_raw_data(dat, attr, nfft=-1, do_psd=False, do_filt=True):
 
     plt.show()
 
+def correlation_template_cw(dat, attr, length=0.1, use_window=True, make_plots=False):
+    ## Make a template for correlating against the charge data, assuming constant drive:
+    ## 1) find the drive frequency
+    ## 2) make a sine wave at that frequency, for length given in seconds
+    ## 3) window if desired
+    drive_dat = dat[:,drive_idx]
+    f, p = sp.welch(drive_dat, attr['Fsamp'], nperseg=2**int(np.log(len(drive_dat))))
+    gpts = (f > 65) & (f < 500) ## search only reasonable range for drive, skip 60 Hz
+    pmax = 1.0*p
+    pmax[~gpts] = 0
+    drive_freq = f[np.argmax(pmax)]
+    print("Drive frequency is: %.2f Hz"%drive_freq)
+    if(make_plots):
+        plt.figure()
+        plt.semilogy(f, p)
+        plt.plot(drive_freq, p[np.argmax(pmax)], 'ro', label="Drive freq.")
+        plt.xlim(0,200)
+        plt.xlabel("Freq [Hz]")
+        plt.ylabel("PSD [arb units/Hz]")
+        plt.legend()
+        plt.show()
+
+    tvec = np.arange(0, length, 1/attr['Fsamp'])
+    template = np.sin(2*np.pi*tvec*drive_freq)
+    if(use_window):
+        template *= sp.windows.hamming(len(template))  
+
+    if(make_plots):
+        plt.figure()
+        plt.plot(tvec, template)
+        plt.xlabel("Time [s]")
+        plt.ylabel("Amp [arb units]")
+        plt.show()
+
+    return template, drive_freq
+
 def correlation_template(dat, attr, make_plots=False, lp_freq=20):
     ## first make the drive template (cut out the first pulse)
     #drive_dat = dat[:,10]
@@ -198,19 +235,99 @@ def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
 
     return noise_dict
 
+def plot_charge_steps(charge_vec):
+    dt = []
+    for j,t in enumerate(charge_vec[:,0]):
+        dt.append(labview_time_to_datetime(t-charge_vec[0,0]))
+
+    plt.figure()
+    #plt.plot_date(dt, charge_vec[:,1], 'k-')
+    plt.plot(charge_vec[:,1], 'k.-')
+    #plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    plt.show()
+
+def signed_correlation_with_drive(dat, attr, nperseg=-1):
+    xdat = dat[:,x_idx]
+    ddat = dat[:,drive_idx]
+
+    if(nperseg < 0):
+        nperseg = len(xdat)
+    nwindows = int(len(xdat)/nperseg)
+    st, en = 0, nperseg
+
+    p = np.abs(np.fft.rfft(ddat[st:en]))**2
+    f = np.fft.rfftfreq(len(ddat[st:en]), d=1/attr['Fsamp'])
+    gpts = (f > 65) & (f < 500) ## search only reasonable range for drive, skip 60 Hz
+    pmax = 1.0*p
+    pmax[~gpts] = 0
+    didx = np.argmax(pmax)
+    #print("Drive frequency is: %.2f Hz"%f[didx])
+
+    corr_vec = []
+    #print("Number of segments is: ", nwindows)
+    for i in range(nwindows):
+        st, en = i*nperseg, (i+1)*nperseg
+        corr = -np.real(np.fft.rfft(xdat[st:en])/np.fft.rfft(ddat[st:en])) ## negative sign gives the charge with positve as excess protons
+        corr_vec.append(corr[didx])
+
+    return np.array(corr_vec)
+
+
+def simple_correlation_with_drive(dat, attr, drive_freq, bw=1, decstages = -1, cal_fac=5e-6, make_plots=False):
+    ### simple bandpass filter
+    fc = np.array([drive_freq-bw/2, drive_freq+bw/2])/(attr['Fsamp']/2) ## lowpass at 20 Hz
+    b, a = sp.butter(3, fc, btype='bandpass')
+    corr_vec = sp.filtfilt(b,a,dat[:,x_idx])
+
+    fc2 = bw/(attr['Fsamp']/2) ## lowpass at 20 Hz
+    b2, a2 = sp.butter(3, fc2, btype='lowpass')
+    corr_vec_rms = sp.filtfilt(b2,a2,corr_vec**2)
+
+    ## cut edge effects
+    nsamps = int(2*attr['Fsamp']/bw)
+    corr_vec_rms = corr_vec_rms[nsamps:-nsamps]
+
+    if(make_plots):
+        tvec = np.arange(len(dat[:,x_idx]))/attr['Fsamp']
+        tvec = tvec[nsamps:-nsamps]
+        plt.figure()
+        plt.plot(tvec, corr_vec_rms/cal_fac, '.-')
+
+    ## if desired do another lowpass to see steps
+    if(decstages>1):
+        #for n in range(decstages):
+        #    corr_vec_rms = sp.decimate(corr_vec_rms, 12)  
+        step_size = int(len(corr_vec_rms)/decstages)
+        out_vec = []
+        for n in range(decstages-1):
+            out_vec.append( np.median( corr_vec_rms[(n*step_size):((n+1)*step_size)]) )
+
+        corr_vec_rms = np.array(out_vec)
+        if(make_plots):
+            out_tvec = []
+            for n in range(decstages-1):
+                out_tvec.append( np.median(tvec[(n*step_size):((n+1)*step_size)]) )
+            plt.plot(out_tvec, corr_vec_rms/cal_fac, '.-')
+
+    if(make_plots):
+        plt.show()
+
+    return np.median(corr_vec_rms)/cal_fac, corr_vec_rms/cal_fac
+
 def plot_correlation_with_drive(dat, template, attr, skip_drive=False, lp_freq=20, make_plots=False):
 
-    corr_vec = sp.correlate(dat[:,0], template, mode='same')
+    corr_vec = sp.correlate(dat[:,x_idx], template, mode='same')
 
     ## filter for RMS calculation
     fc = lp_freq/(attr['Fsamp']/2) ## lowpass at 20 Hz
     b, a = sp.butter(3, fc, btype='lowpass')
 
+
     ## special case for 20230803 when two drives were on
     ## due to the beating want to remove the times when the second drive was there
     ## this is the opposite of what we usually want
     if(skip_drive):
-        drive_dat = dat[:,10]
+        drive_dat = dat[:,drive_idx]
         drive_dat_filt = drive_dat**2
         drive_dat_filt = sp.filtfilt(b,a,drive_dat_filt)
         thresh = 0.1*np.max(drive_dat_filt) ## threshold at 50%
@@ -227,7 +344,7 @@ def plot_correlation_with_drive(dat, template, attr, skip_drive=False, lp_freq=2
         plt.plot(tvec,np.ones_like(corr_vec)*np.median(corr_vec_rms),'r:')
         plt.show()
 
-    return np.median(corr_vec_rms)
+    return np.median(corr_vec_rms), corr_vec_rms
 
 
 def labview_time_to_datetime(lt):
