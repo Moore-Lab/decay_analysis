@@ -246,9 +246,11 @@ def plot_charge_steps(charge_vec):
     #plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
     plt.show()
 
-def signed_correlation_with_drive(dat, attr, nperseg=-1):
+def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170):
     xdat = dat[:,x_idx]
     ddat = dat[:,drive_idx]
+
+    time_vec = attr["Time"] + np.arange(-len(xdat), 0)/attr['Fsamp'] ## time stamp at end of file
 
     if(nperseg < 0):
         nperseg = len(xdat)
@@ -261,16 +263,42 @@ def signed_correlation_with_drive(dat, attr, nperseg=-1):
     pmax = 1.0*p
     pmax[~gpts] = 0
     didx = np.argmax(pmax)
-    #print("Drive frequency is: %.2f Hz"%f[didx])
+    ## fix issue where some files didn't record the drive for 20230927
+    has_drive = True
+    if(np.abs(f[didx]-111)>0.1):
+        didx = np.argmin(np.abs(f-110.93))
+        has_drive = False
+        #print("Fixed Drive frequency is: %.2f Hz"%f[didx])
 
     corr_vec = []
+    corr2_vec = []
+    corr3_vec = []
+    drive_vec = []
+    time_out = []
     #print("Number of segments is: ", nwindows)
     for i in range(nwindows):
         st, en = i*nperseg, (i+1)*nperseg
-        corr = -np.real(np.fft.rfft(xdat[st:en])/np.fft.rfft(ddat[st:en])) ## negative sign gives the charge with positve as excess protons
-        corr_vec.append(corr[didx])
+        ctime = np.median(time_vec[st:en])
+        if(has_drive):
+            cratio = (np.fft.rfft(xdat[st:en])/np.fft.rfft(ddat[st:en]))[didx]
+            corr = -np.real(cratio) ## negative sign gives the charge with positve as excess protons
+            corr2 = -np.abs(cratio)*np.sign(np.real(cratio))
+            corr3 = -np.abs(np.fft.rfft(xdat[st:en])[didx])*np.sign(np.real(cratio))*recal_fac
+        else:
+            cratio = (np.fft.rfft(xdat[st:en]))[didx] * recal_fac
+            corr = -np.real(cratio) ## negative sign gives the charge with positve as excess protons
+            corr2 = -np.abs(cratio)*np.sign(np.real(cratio))
+            corr3 = -np.abs(np.fft.rfft(xdat[st:en])[didx])*np.sign(np.real(cratio))*recal_fac
 
-    return np.array(corr_vec)
+        drive_vec.append(np.abs(np.fft.rfft(ddat[st:en])[didx]))
+
+        corr_vec.append(corr)
+        corr2_vec.append(corr2)
+        corr3_vec.append(corr3)
+        time_out.append(ctime)
+
+    data_out = np.vstack((np.array(corr_vec), np.array(corr2_vec), np.array(corr3_vec), np.array(drive_vec), np.array(time_out))).T
+    return data_out
 
 
 def simple_correlation_with_drive(dat, attr, drive_freq, bw=1, decstages = -1, cal_fac=5e-6, make_plots=False):
