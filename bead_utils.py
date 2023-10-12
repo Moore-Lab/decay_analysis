@@ -212,12 +212,16 @@ def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
     eta = 2*res_pars[1]/res_pars[0]
     omega0, gamma = res_pars[0]/np.sqrt(1 - eta**2), 2*res_pars[1] ## factor of two by definition
     omega = 2*np.pi*cf
-    sphere_tf = gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2)
+    sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
     res_pos = np.argmin( np.abs(omega0-omega) )
     sphere_tf *= J[res_pos]/sphere_tf[res_pos]
 
     Jout = 1.0*J
+    ## old signal to noise based version
     Jout[J/sphere_tf > 5] = 1e20
+    ## just cut frequencies instead
+    bad_freqs = (cf < 5) | (cf > 115)
+    Jout[bad_freqs] = 1e20
 
     plt.figure()
     plt.semilogy(cf, J, 'k', label="Measured")
@@ -664,7 +668,7 @@ def find_crossing_indices(signal, threshold):
 
     return rising_edges, falling_edges
 
-def get_average_template(calib_dict, make_plots=False, fit_pars=[]):
+def get_average_template(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx):
     
     pulse_dict = {}
     fit_dict = {}
@@ -768,7 +772,7 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
 
 def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[], notch_list = [], 
                      omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=True, 
-                     make_plots=False):
+                     drive_idx=drive_idx, make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
@@ -808,8 +812,15 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
 
 
             impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
-
-            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_data[impulse_cent]))
+            #filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_data[impulse_cent]))
+            corr_vals = []
+            corr_idx = []
+            wind=30
+            for ic in impulse_cent:
+                current_search = corr_data[(ic-wind):(ic+wind)]
+                corr_vals.append(np.max(current_search))
+                corr_idx.append(ic-wind+np.argmax(current_search))
+            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
 
             if(make_plots):
                 sfac = 1/5
@@ -817,25 +828,26 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
                 impulse_times, _ = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
                 plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
                 plt.plot(corr_data*sfac)
-                plt.plot(impulse_cent, corr_data[impulse_cent]*sfac, 'ro')
-                plt.xlim(0,3e5)
-                #plt.xlim(0,2e4)
+                #plt.plot(impulse_cent, corr_data[impulse_cent]*sfac, 'ro')
+                plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
+                #plt.xlim(0,3e5)
+                plt.xlim(0,8e4)
                 plt.ylim(0,2)
                 plt.title(impulse_amp)
 
-                plt.figure(figsize=(15,3))
-                fp, psd = sp.welch(cdat[:,x_idx], nperseg=2**16, fs=attr['Fsamp'])
-                fp_filt, psd_filt = sp.welch(xdata, nperseg=2**16, fs=attr['Fsamp'])
-                plt.semilogy(fp, psd)
-                plt.semilogy(fp_filt, psd_filt)
-                plt.xlim(0,100)
-                mv = np.max(psd_filt)
-                plt.ylim([1e-7*mv, 2*mv])
+                #plt.figure(figsize=(15,3))
+                #fp, psd = sp.welch(cdat[:,x_idx], nperseg=2**16, fs=attr['Fsamp'])
+                #fp_filt, psd_filt = sp.welch(xdata, nperseg=2**16, fs=attr['Fsamp'])
+                #plt.semilogy(fp, psd)
+                #plt.semilogy(fp_filt, psd_filt)
+                #plt.xlim(0,100)
+                #mv = np.max(psd_filt)
+                #plt.ylim([1e-7*mv, 2*mv])
                 plt.show()
 
     return filt_dict
 
-def get_impulse_cents(cdat, fs, time_offset=0, pulse_data=True, drive_freq = 120):
+def get_impulse_cents(cdat, fs, time_offset=0, pulse_data=True, drive_freq = 120, drive_idx=drive_idx):
 
     xdata = cdat[:,0]
 
@@ -900,7 +912,7 @@ def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False):
                 return best_scale*xdrive_inv
 
 def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
-                 omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, make_plots=False):
+                 omega0 = 2*np.pi*40, gamma = 2*np.pi*4, drive_idx=drive_idx, subtract_sine_step=False, make_plots=False):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
@@ -945,7 +957,8 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
             corr_data = np.abs(sp.correlate(xdata, phi_t, mode='same'))
 
-            impulse_cent = get_impulse_cents(cdat, fs, time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
+            impulse_cent = get_impulse_cents(cdat, fs, time_offset=time_offset, pulse_data=pulse_data, 
+                                             drive_idx=drive_idx, drive_freq = 120)
 
             corr_vals = []
             corr_idx = []
@@ -964,9 +977,9 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
                 plt.plot(np.abs(corr_data*sfac))
                 plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
                 #plt.xlim(0,3e5)
-                #plt.xlim(0,2e4)
-                plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(0,2)
+                plt.xlim(0,2e4)
+                #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
+                plt.ylim(0,0.25)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict
