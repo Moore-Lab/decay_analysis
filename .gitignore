@@ -163,3 +163,4 @@ cython_debug/
 *.pdf
 *.png
 old/
+*.npz

@@ -250,7 +250,7 @@ def plot_charge_steps(charge_vec):
     #plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
     plt.show()
 
-def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170):
+def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170, use_window=False):
     xdat = dat[:,x_idx]
     ddat = dat[:,drive_idx]
 
@@ -267,6 +267,7 @@ def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170):
     pmax = 1.0*p
     pmax[~gpts] = 0
     didx = np.argmax(pmax)
+    print("Found drive freq: %.2f Hz"%f[didx])
     ## fix issue where some files didn't record the drive for 20230927
     has_drive = True
     if(np.abs(f[didx]-111)>0.1):
@@ -283,16 +284,20 @@ def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170):
     for i in range(nwindows):
         st, en = i*nperseg, (i+1)*nperseg
         ctime = np.median(time_vec[st:en])
-        if(has_drive):
-            cratio = (np.fft.rfft(xdat[st:en])/np.fft.rfft(ddat[st:en]))[didx]
-            corr = -np.real(cratio) ## negative sign gives the charge with positve as excess protons
-            corr2 = -np.abs(cratio)*np.sign(np.real(cratio))
-            corr3 = -np.abs(np.fft.rfft(xdat[st:en])[didx])*np.sign(np.real(cratio))*recal_fac
+        if(use_window):
+            window = sp.windows.hamming(en-st)
         else:
-            cratio = (np.fft.rfft(xdat[st:en]))[didx] * recal_fac
+            window = np.ones(en-st)
+        if(has_drive):
+            cratio = (np.fft.rfft(xdat[st:en]*window)/np.fft.rfft(ddat[st:en]*window))[didx]
             corr = -np.real(cratio) ## negative sign gives the charge with positve as excess protons
             corr2 = -np.abs(cratio)*np.sign(np.real(cratio))
-            corr3 = -np.abs(np.fft.rfft(xdat[st:en])[didx])*np.sign(np.real(cratio))*recal_fac
+            corr3 = -np.abs(np.fft.rfft(xdat[st:en]*window)[didx])*np.sign(np.real(cratio))*recal_fac
+        else:
+            cratio = (np.fft.rfft(xdat[st:en]*window))[didx] * recal_fac
+            corr = -np.real(cratio) ## negative sign gives the charge with positve as excess protons
+            corr2 = -np.abs(cratio)*np.sign(np.real(cratio))
+            corr3 = -np.abs(np.fft.rfft(xdat[st:en]*window)[didx])*np.sign(np.real(cratio))*recal_fac
 
         drive_vec.append(np.abs(np.fft.rfft(ddat[st:en])[didx]))
 
@@ -992,4 +997,83 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
                 plt.ylim(0,0.25)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
-    return filt_dict
+    return filt_dict, phi_t
+
+
+def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs=[1,1], amp_cal_fac=1, drive_idx=drive_idx):
+
+    Fs =(attributes['Fsamp']/2)
+
+    ## coarse LP filter
+    fc_x = np.array([5, 70])/Fs
+    b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
+    x_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx])
+    y_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+1])
+    z_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+2])
+
+    ## charge data
+    xdata = data[:,x_idx]
+    drive_data = data[:,drive_idx]
+
+    fc_drive = np.array([110, 112])/Fs
+    fc_data = np.array([104, 119])/Fs
+    b_data,a_data = sp.butter(3, fc_data, btype='bandpass')
+    b_drive,a_drive = sp.butter(3, fc_drive, btype='bandpass')
+    tvec = np.arange(len(xdata))/attributes['Fsamp']
+
+    nfine = 2**7
+    ncoarse = 2**14
+    #corr_dat = signed_correlation_with_drive(data, attributes, nperseg=nfine, recal_fac = 1/170)
+    drive_data_tilde = np.fft.rfft(drive_data)
+
+    drive_data = sp.filtfilt(b_drive,a_drive,drive_data)
+    xdata = sp.filtfilt(b_data,a_data,xdata)
+
+    window_fine=sp.windows.hamming(nfine)
+    window_coarse=sp.windows.hamming(ncoarse)
+
+    fine_points = range(int(nfine/2),len(xdata),nfine)
+    coarse_points = range(int(ncoarse/2),len(xdata),int(ncoarse/2))
+
+    corr_dat_fine = 1.0*np.zeros_like(fine_points)
+    corr_dat_coarse = 1.0*np.zeros_like(coarse_points)
+
+    for i, pt in enumerate(fine_points[1:-1]):
+        st, en = int(pt - nfine/2), int(pt + nfine/2)
+        corr_dat_fine[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_fine)
+
+    for i, pt in enumerate(coarse_points[1:-1]):
+        st, en = int(pt - ncoarse/2), int(pt + ncoarse/2)
+        corr_dat_coarse[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_coarse)
+
+
+    xmin = xrange[0] if xrange[0] > 0 else tvec[0]
+    xmax = xrange[1] if xrange[1] > 0 else tvec[-1]
+
+    plt.figure(figsize=(8,8))
+    coord_dat = [x_position_data, y_position_data, z_position_data]
+    for i in range(3):
+
+        corr_data = np.abs(sp.correlate(coord_dat[i], opt_filt, mode='same'))
+
+        plt.subplot(4,1,i+1)
+        plt.plot(tvec, coord_dat[i], 'k')
+        plt.plot(tvec, corr_data*amp_cal_fac, 'orange')
+        plt.xlim(xmin, xmax)
+        plt.ylim(-10,600)
+        plt.gca().set_xticklabels([])
+
+    plt.subplot(4,1,4)
+    plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'k')
+    plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'orange')
+    plt.xlim(xmin, xmax)
+    plt.ylim(-5, 10)
+    plt.grid(True)
+
+    plt.subplots_adjust( hspace=0.0 )
+
+    #plt.subplot(2,1,2)
+    #tvec_charge = corr_dat[:,-1] - corr_dat[0,-1]
+    #plt.plot(tvec_charge, corr_dat[:,0]/cal_fac, 'orange')
+
+    plt.show()
