@@ -235,7 +235,7 @@ def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
     plt.legend(loc="upper right")
     plt.show()
 
-    noise_dict = {"freq": cf, "J": Jout}
+    noise_dict = {"freq": cf, "J": Jout, "Jorig": J}
 
     return noise_dict
 
