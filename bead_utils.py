@@ -727,7 +727,7 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[], drive_idx=dr
 
 def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], 
                   omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=False, 
-                  make_plots=False):
+                  drive_idx=drive_idx, make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
@@ -753,18 +753,28 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
 
             impulse_rise, impulse_fall = find_crossing_indices(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]), 0.5)
             
-            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
+            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, 
+                                             drive_idx=drive_idx, drive_freq = 120)
 
-            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], np.abs(xdata[impulse_cent])))
+            corr_data = np.abs(xdata)
+            corr_vals = []
+            corr_idx = []
+            wind=200
+            for ic in impulse_cent:
+                current_search = corr_data[(ic-wind):(ic+wind)]
+                corr_vals.append(np.max(current_search))
+                corr_idx.append(ic-wind+np.argmax(current_search))
+            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
+
 
             if(make_plots):
                 sfac =10
                 plt.figure(figsize=(15,3))
                 plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
                 plt.plot(np.abs(xdata)*sfac)
-                plt.plot(impulse_cent, np.abs(xdata[impulse_cent])*sfac, 'ro')
-                #plt.xlim(0,2e5)
-                plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
+                plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
+                plt.xlim(0,2e4)
+                #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
                 plt.ylim(0,2)
                 plt.title(impulse_amp)
 
@@ -811,7 +821,7 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
             corr_data = np.sqrt(sp.filtfilt(bcorr, acorr, corr_data**2))
 
 
-            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120)
+            impulse_cent = get_impulse_cents(cdat, attr['Fsamp'], time_offset=time_offset, pulse_data=pulse_data, drive_freq = 120, drive_idx=drive_idx)
             #filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_data[impulse_cent]))
             corr_vals = []
             corr_idx = []
