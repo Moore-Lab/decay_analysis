@@ -1000,7 +1000,8 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
     return filt_dict, phi_t
 
 
-def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs=[1,1], amp_cal_fac=1, drive_idx=drive_idx):
+def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[1,1], 
+                            drive_idx=drive_idx, plot_wind=3, charge_wind=5, charge_range=[-1,-1], ylim_init=600):
 
     Fs =(attributes['Fsamp']/2)
 
@@ -1047,33 +1048,76 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
         corr_dat_coarse[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_coarse)
 
 
-    xmin = xrange[0] if xrange[0] > 0 else tvec[0]
-    xmax = xrange[1] if xrange[1] > 0 else tvec[-1]
+    ## find the index of any charge changes
+    coarse_diff = np.diff(corr_dat_coarse)
+    coarse_diff[0] = 0 ## throw out edge effects
+    coarse_diff[-1] = 0
 
-    plt.figure(figsize=(8,8))
+    if( xrange[0] < 0):
+        charge_change_idx = np.where(np.abs(coarse_diff) > np.std(coarse_diff)*3)[0]
+        ## group any neighbors
+        dups = np.where(np.abs(np.diff(charge_change_idx)) == 1)[0]
+        charge_change_idx = np.delete(charge_change_idx, dups+1)
+        if(len(charge_change_idx) != 1):
+            print("Warning, didn't find exactly 1 charge change")
+        charge_change_idx = charge_change_idx[0]
+
+        xmin = tvec[coarse_points][charge_change_idx]-plot_wind
+        xmax = tvec[coarse_points][charge_change_idx]+plot_wind
+
+    else:        
+        charge_change_idx = int(len(coarse_points)/2)
+        xmin = xrange[0] 
+        xmax = xrange[1] 
+
+    charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
+    charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
+    
+    figout = plt.figure(figsize=(14,8))
     coord_dat = [x_position_data, y_position_data, z_position_data]
+    range_fac = [1,0.8,0.35]
+    coord_labs = ['X [MeV]', 'Y [arb units]', 'Z [arb units]', 'Charge [$e$]']
     for i in range(3):
 
         corr_data = np.abs(sp.correlate(coord_dat[i], opt_filt, mode='same'))
 
-        plt.subplot(4,1,i+1)
-        plt.plot(tvec, coord_dat[i], 'k')
-        plt.plot(tvec, corr_data*amp_cal_fac, 'orange')
-        plt.xlim(xmin, xmax)
-        plt.ylim(-10,600)
-        plt.gca().set_xticklabels([])
+        for col_idx in range(2):
+            sp_idx = 2*i + col_idx + 1
+            plt.subplot(4,2,sp_idx)
+            plt.plot(tvec, coord_dat[i]*amp_cal_facs[0], color='k', rasterized=True)
+            plt.plot(tvec, corr_data*amp_cal_facs[1], 'orange', rasterized=True)
+            if(col_idx==0):
+                plt.xlim(0, tvec[-1])
+            else:
+                plt.xlim(xmin, xmax)
+            plt.ylim(-ylim_init*range_fac[i],ylim_init*range_fac[i])
+            plt.gca().set_xticklabels([])
+            y1, y2 = -ylim_init*range_fac[i],ylim_init*range_fac[i]
+            if(charge_range[0] > 0):
+                if(col_idx==0):
+                    plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+                    plt.ylabel(coord_labs[i])
+                else:
+                    plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4)
 
-    plt.subplot(4,1,4)
-    plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'k')
-    plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'orange')
-    plt.xlim(xmin, xmax)
-    plt.ylim(-5, 10)
-    plt.grid(True)
 
-    plt.subplots_adjust( hspace=0.0 )
+    for col_idx in range(2):
+        plt.subplot(4, 2, 7 + col_idx)
+        plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=True)
+        plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=True)
+        if(col_idx==0):
+            plt.xlim(0, tvec[-1])
+            plt.ylabel(coord_labs[3])
+        else:
+            plt.xlim(xmin, xmax)
 
-    #plt.subplot(2,1,2)
-    #tvec_charge = corr_dat[:,-1] - corr_dat[0,-1]
-    #plt.plot(tvec_charge, corr_dat[:,0]/cal_fac, 'orange')
+        plt.ylim(charge_before-charge_wind, charge_after+charge_wind)
+        plt.grid(True)
+        y1, y2 = charge_before-charge_wind, charge_after+charge_wind
+        if(charge_range[0] > 0):
+            plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+        plt.xlabel("Time [s]")
 
-    plt.show()
+    plt.subplots_adjust( hspace=0.0)
+
+    return figout
