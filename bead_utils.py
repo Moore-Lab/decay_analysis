@@ -41,6 +41,12 @@ def get_data(fname, gain_error=1.0):
 
     return dat, attribs, f
 
+def get_alpha_data(fname):
+    ## get the data saved in the h5 files for the photodiode
+    f = h5py.File(fname,'r')
+    dat = f['voltage']
+    time = f['time']
+
 def plot_raw_data(dat, attr, nfft=-1, do_psd=False, do_filt=True):
 
     tvec = np.arange(len(dat[:,0]))/attr['Fsamp']
@@ -732,7 +738,7 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[], drive_idx=dr
 
 def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], 
                   omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=False, 
-                  drive_idx=drive_idx, make_plots=False):
+                  cal_fac = 1, drive_idx=drive_idx, make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
@@ -777,14 +783,14 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
             filt_dict[off_key] = np.hstack((filt_dict[off_key], idx_offsets))
 
             if(make_plots):
-                sfac =10
+                sfac = cal_fac
                 plt.figure(figsize=(15,3))
-                plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
+                plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx])*cal_fac)
                 plt.plot(np.abs(xdata)*sfac)
                 plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
-                plt.xlim(0,2e4)
+                plt.xlim(0,3e5)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(0,2)
+                plt.ylim(0,500)
                 plt.title(impulse_amp)
 
     return filt_dict
@@ -931,7 +937,8 @@ def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False):
                 return best_scale*xdrive_inv
 
 def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
-                 omega0 = 2*np.pi*40, gamma = 2*np.pi*4, drive_idx=drive_idx, subtract_sine_step=False, make_plots=False):
+                 omega0 = 2*np.pi*40, gamma = 2*np.pi*4, cal_fac=1, drive_idx=drive_idx, 
+                 subtract_sine_step=False, make_plots=False):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
@@ -995,15 +1002,15 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
             if(make_plots):
                 fstr = str.split(fname,'/')[-1]
-                sfac = 1/10
+                sfac = cal_fac
                 plt.figure(figsize=(15,3))
-                plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]))
-                plt.plot(np.abs(corr_data*sfac))
+                plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]) * cal_fac)
+                plt.plot(np.abs(corr_data*sfac) )
                 plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
-                #plt.xlim(0,3e5)
-                plt.xlim(5000, 7500)
+                plt.xlim(0,3e5)
+                #plt.xlim(5000, 7500)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(0,0.25)
+                plt.ylim(0,500)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict, phi_t
@@ -1013,10 +1020,10 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
                             drive_idx=drive_idx, plot_wind=3, charge_wind=5, charge_range=[-1,-1], 
                             ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0):
 
-    Fs =(attributes['Fsamp']/2)
+    nyquist =(attributes['Fsamp']/2)
 
     ## coarse LP filter
-    fc_x = np.array([5, 70])/Fs
+    fc_x = np.array([5, 70])/nyquist
     b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
     x_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx])
     y_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+1])
@@ -1026,8 +1033,8 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
     xdata = data[:,x_idx]
     drive_data = data[:,drive_idx]
 
-    fc_drive = np.array([110, 112])/Fs
-    fc_data = np.array([104, 119])/Fs
+    fc_drive = np.array([110, 112])/nyquist
+    fc_data = np.array([104, 119])/nyquist
     b_data,a_data = sp.butter(3, fc_data, btype='bandpass')
     b_drive,a_drive = sp.butter(3, fc_drive, btype='bandpass')
     tvec = np.arange(len(xdata))/attributes['Fsamp']
@@ -1102,25 +1109,35 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
         for col_idx in range(3):
             sp_idx = 3*i + col_idx + 1
             plt.subplot(4,3,sp_idx)
-            plt.plot(tvec, np.roll(coord_dat[i],-filt_time_offset)*amp_cal_facs[0], color='k', rasterized=True)
-            plt.plot(tvec, corr_data*amp_cal_facs[1], 'orange', rasterized=True)
+            bp_data = np.roll(coord_dat[i],-filt_time_offset)*amp_cal_facs[0]
+            opt_data = corr_data*amp_cal_facs[1]
+            plt.plot(tvec, bp_data, color='k', rasterized=True)
+            plt.plot(tvec, opt_data, 'orange', rasterized=True)
             plt.ylim(-ylim_init*range_fac[i],ylim_init*range_fac[i])
             plt.gca().set_xticklabels([])
             y1, y2 = -ylim_init*range_fac[i],ylim_init*range_fac[i]
 
             ## find max around the pulse time in the X data
+            markstyle = ['bo', 'ko']
             if(sp_idx == 3):
-                search_wind = 0.1
-                gpts = (tvec > cent -search_wind) & (tvec < cent+search_wind)
-                vec_for_max = 1.0*corr_data
-                vec_for_max[~gpts] = 0  
-                max_idx = np.argmax(vec_for_max)
-                max_val = corr_data[max_idx]*amp_cal_facs[1]
-                plt.plot(tvec[max_idx], max_val, 'bo', label = "%.1f MeV"%max_val)
+                max_vals = []
+                max_idxs = []
+                for ms,d in zip(markstyle, [opt_data, bp_data]):
+                    search_wind = 0.1 ## +/- 100 ms
+                    gpts = (tvec > cent -search_wind) & (tvec < cent+search_wind)
+                    vec_for_max = 1.0*np.abs(d)
+                    vec_for_max[~gpts] = 0  
+                    max_idx = np.argmax(vec_for_max)
+                    max_val = np.abs(d[max_idx])
+                    plt.plot(tvec[max_idx], d[max_idx], ms, label = "%.1f MeV"%max_val)
+                    max_vals.append(np.abs(max_val))
+                    max_idxs.append(max_idx)
+
                 plt.legend(loc='upper right')
 
+
             if( sp_idx % 3 == 0):
-                plt.plot([tvec[max_idx],tvec[max_idx]], [y1, y2], 'b:')
+                plt.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [y1, y2], 'b:')
 
             if(col_idx==0):
                 plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
@@ -1146,10 +1163,11 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
         plt.xlabel("Time [s]")
 
         if( col_idx == 2):
-            plt.plot([tvec[max_idx],tvec[max_idx]], [y1, y2], 'b:')
+            plt.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [y1, y2], 'b:')
 
 
     plt.subplots_adjust( hspace=0.0, left=0.04, right=0.99, top=0.95, bottom=0.05)
     #plt.tight_layout()
 
-    return figout
+    step_params = [max_vals[0], max_vals[1], charge_after-charge_before]
+    return figout, step_params
