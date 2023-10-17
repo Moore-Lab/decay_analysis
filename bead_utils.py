@@ -1001,7 +1001,8 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 
 def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[1,1], 
-                            drive_idx=drive_idx, plot_wind=3, charge_wind=5, charge_range=[-1,-1], ylim_init=600):
+                            drive_idx=drive_idx, plot_wind=3, charge_wind=5, charge_range=[-1,-1], 
+                            ylim_init=600, plot_wind_zoom=0.5):
 
     Fs =(attributes['Fsamp']/2)
 
@@ -1064,60 +1065,64 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
 
         xmin = tvec[coarse_points][charge_change_idx]-plot_wind
         xmax = tvec[coarse_points][charge_change_idx]+plot_wind
+        
+        xmin_zoom = tvec[coarse_points][charge_change_idx]-plot_wind_zoom
+        xmax_zoom = tvec[coarse_points][charge_change_idx]+plot_wind_zoom
 
     else:        
         charge_change_idx = int(len(coarse_points)/2)
         xmin = xrange[0] 
         xmax = xrange[1] 
 
+        cent = np.mean(xrange)
+        xmin_zoom = cent - plot_wind_zoom
+        xmax_zoom = cent + plot_wind_zoom
+
     charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
     charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
     
-    figout = plt.figure(figsize=(14,8))
+    figout = plt.figure(figsize=(21,12))
     coord_dat = [x_position_data, y_position_data, z_position_data]
     range_fac = [1,0.8,0.35]
+    xlims = [[0, tvec[-1]], [xmin, xmax], [xmin_zoom, xmax_zoom]]
     coord_labs = ['X [MeV]', 'Y [arb units]', 'Z [arb units]', 'Charge [$e$]']
     for i in range(3):
 
         corr_data = np.abs(sp.correlate(coord_dat[i], opt_filt, mode='same'))
 
-        for col_idx in range(2):
-            sp_idx = 2*i + col_idx + 1
-            plt.subplot(4,2,sp_idx)
+        for col_idx in range(3):
+            sp_idx = 3*i + col_idx + 1
+            plt.subplot(4,3,sp_idx)
             plt.plot(tvec, coord_dat[i]*amp_cal_facs[0], color='k', rasterized=True)
             plt.plot(tvec, corr_data*amp_cal_facs[1], 'orange', rasterized=True)
-            if(col_idx==0):
-                plt.xlim(0, tvec[-1])
-            else:
-                plt.xlim(xmin, xmax)
             plt.ylim(-ylim_init*range_fac[i],ylim_init*range_fac[i])
             plt.gca().set_xticklabels([])
             y1, y2 = -ylim_init*range_fac[i],ylim_init*range_fac[i]
-            if(charge_range[0] > 0):
-                if(col_idx==0):
-                    plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
-                    plt.ylabel(coord_labs[i])
-                else:
-                    plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4)
 
+            if(col_idx==0):
+                plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+                plt.ylabel(coord_labs[i])
+            elif(col_idx==1):
+                plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4)
+            
+            plt.xlim(xlims[col_idx])
 
-    for col_idx in range(2):
-        plt.subplot(4, 2, 7 + col_idx)
+    for col_idx in range(3):
+        plt.subplot(4, 3, 10 + col_idx)
         plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=True)
         plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=True)
         if(col_idx==0):
-            plt.xlim(0, tvec[-1])
             plt.ylabel(coord_labs[3])
-        else:
-            plt.xlim(xmin, xmax)
+        plt.xlim(xlims[col_idx])
 
         plt.ylim(charge_before-charge_wind, charge_after+charge_wind)
         plt.grid(True)
         y1, y2 = charge_before-charge_wind, charge_after+charge_wind
-        if(charge_range[0] > 0):
+        if(col_idx < 2):
             plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
         plt.xlabel("Time [s]")
 
-    plt.subplots_adjust( hspace=0.0)
+    plt.subplots_adjust( hspace=0.0, left=0.04, right=0.99, top=0.95, bottom=0.05)
+    #plt.tight_layout()
 
     return figout
