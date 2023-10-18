@@ -1171,3 +1171,121 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
 
     step_params = [max_vals[0], max_vals[1], charge_after-charge_before]
     return figout, step_params
+
+
+def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], drive_idx=drive_idx, 
+                          plot_wind=3, charge_wind=5, charge_range=[-1,-1], plot_wind_zoom=0.5):
+
+    nyquist =(attributes['Fsamp']/2)
+
+    ## charge data
+    xdata = data[:,x_idx]
+    drive_data = data[:,drive_idx]
+
+    fc_drive = np.array([110, 112])/nyquist
+    fc_data = np.array([104, 119])/nyquist
+    b_data,a_data = sp.butter(3, fc_data, btype='bandpass')
+    b_drive,a_drive = sp.butter(3, fc_drive, btype='bandpass')
+    tvec = np.arange(len(xdata))/attributes['Fsamp']
+
+    nfine = 2**7
+    ncoarse = 2**14
+    #corr_dat = signed_correlation_with_drive(data, attributes, nperseg=nfine, recal_fac = 1/170)
+    drive_data_tilde = np.fft.rfft(drive_data)
+
+    drive_data = sp.filtfilt(b_drive,a_drive,drive_data)
+    xdata = sp.filtfilt(b_data,a_data,xdata)
+
+    window_fine=sp.windows.hamming(nfine)
+    window_coarse=sp.windows.hamming(ncoarse)
+
+    fine_points = range(int(nfine/2),len(xdata),nfine)
+    coarse_points = range(int(ncoarse/2),len(xdata),int(ncoarse/2))
+
+    corr_dat_fine = 1.0*np.zeros_like(fine_points)
+    corr_dat_coarse = 1.0*np.zeros_like(coarse_points)
+
+    for i, pt in enumerate(fine_points[1:-1]):
+        st, en = int(pt - nfine/2), int(pt + nfine/2)
+        corr_dat_fine[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_fine)
+
+    for i, pt in enumerate(coarse_points[1:-1]):
+        st, en = int(pt - ncoarse/2), int(pt + ncoarse/2)
+        corr_dat_coarse[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_coarse)
+
+
+    ## find the index of any charge changes
+    coarse_diff = np.diff(corr_dat_coarse)
+    coarse_diff[0] = 0 ## throw out edge effects
+    coarse_diff[-1] = 0
+
+    if( xrange[0] < 0):
+        charge_change_idx = np.where(np.abs(coarse_diff) > np.std(coarse_diff)*3)[0]
+        ## group any neighbors
+        dups = np.where(np.abs(np.diff(charge_change_idx)) == 1)[0]
+        charge_change_idx = np.delete(charge_change_idx, dups+1)
+        if(len(charge_change_idx) != 1):
+            print("Warning, didn't find exactly 1 charge change")
+        charge_change_idx = charge_change_idx[0]
+
+        xmin = tvec[coarse_points][charge_change_idx]-plot_wind
+        xmax = tvec[coarse_points][charge_change_idx]+plot_wind
+        
+        xmin_zoom = tvec[coarse_points][charge_change_idx]-plot_wind_zoom
+        xmax_zoom = tvec[coarse_points][charge_change_idx]+plot_wind_zoom
+
+    else:        
+        xmin = xrange[0] 
+        xmax = xrange[1] 
+
+        cent = np.mean(xrange)
+        xmin_zoom = cent - plot_wind_zoom
+        xmax_zoom = cent + plot_wind_zoom
+        charge_change_idx = np.argmin(np.abs(tvec[coarse_points]-cent))
+
+    charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
+    charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
+    
+    figout = plt.figure(figsize=(21,6))
+    coord_dat = [data[:,3]] ## alpha detector trigger data
+    range_fac = [1,0.8,0.35]
+    xlims = [[0, tvec[-1]], [xmin, xmax], [xmin_zoom, xmax_zoom]]
+    coord_labs = ['X [MeV]', 'Y [arb units]', 'Z [arb units]', 'Charge [$e$]']
+    for i in range(1):
+
+        for col_idx in range(3):
+            sp_idx = 3*i + col_idx + 1
+            plt.subplot(2,3,sp_idx)
+
+            plt.plot(tvec, coord_dat[i], color='k', rasterized=True)
+            plt.gca().set_xticklabels([])
+            y1, y2 = -1,0
+            plt.ylim(y1,y2)
+
+            if(col_idx==0):
+                plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+                plt.ylabel(coord_labs[i])
+            elif(col_idx==1):
+                plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4)
+            
+            plt.xlim(xlims[col_idx])
+
+    for col_idx in range(3):
+        plt.subplot(2, 3, 4 + col_idx)
+        plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=True)
+        plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=True)
+        if(col_idx==0):
+            plt.ylabel(coord_labs[3])
+        plt.xlim(xlims[col_idx])
+
+        plt.ylim(charge_before-charge_wind, charge_after+charge_wind)
+        plt.grid(True)
+        y1, y2 = charge_before-charge_wind, charge_after+charge_wind
+        if(col_idx < 2):
+            plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+        plt.xlabel("Time [s]")
+
+
+    plt.subplots_adjust( hspace=0.0, left=0.04, right=0.99, top=0.95, bottom=0.05)
+    #plt.tight_layout()
+    return figout
