@@ -273,13 +273,13 @@ def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170, use_
     pmax = 1.0*p
     pmax[~gpts] = 0
     didx = np.argmax(pmax)
-    print("Found drive freq: %.2f Hz"%f[didx])
+    #print("Found drive freq: %.2f Hz"%f[didx])
     ## fix issue where some files didn't record the drive for 20230927
     has_drive = True
     if(np.abs(f[didx]-111)>0.1):
         didx = np.argmin(np.abs(f-110.93))
         has_drive = False
-        #print("Fixed Drive frequency is: %.2f Hz"%f[didx])
+        print("Fixed Drive frequency is: %.2f Hz"%f[didx])
 
     corr_vec = []
     corr2_vec = []
