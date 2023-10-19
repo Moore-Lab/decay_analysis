@@ -1289,3 +1289,59 @@ def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], driv
     plt.subplots_adjust( hspace=0.0, left=0.04, right=0.99, top=0.95, bottom=0.05)
     #plt.tight_layout()
     return figout
+
+def calc_expected_spectrum(noise_vals, make_plots=False):
+    ## plots of expected spectrum vs D.O.F.
+    ## what is the expected distribution of amplitudes projected onto x:
+    npts = int(1e7)
+    phi = 2*np.pi*np.random.rand(npts)
+    theta = np.arccos(2*np.random.rand(npts)-1)
+
+    ## beta, Po212, Bi212
+    decay_momenta = [0, 265, 220] ## MeV
+    branching_fractions = [0.58, 0.27, 0.15] ## fraction of decays
+    labels = [r'$\beta$', '$^{212}$Po', '$^{212}$Bi']
+    noise = 40 ## MeV
+
+    ndof = [1,2,3]
+    epdf_ndof = []
+
+    for k,nd in enumerate(ndof):
+        bins = np.linspace(0, 500, 500)
+        htot = np.zeros(len(bins)-1)
+        hlist = []
+        for j,dm in enumerate(decay_momenta):
+            if(nd == 1):
+                curr_vals = dm*np.sin(phi)*np.cos(theta) + noise_vals[k]*np.random.randn(npts)
+            elif(nd == 2):
+                curr_vals = dm*np.cos(theta) + noise_vals[k]*np.random.randn(npts)
+            else:
+                curr_vals = dm + noise_vals[k]*np.random.randn(npts)  
+
+            if(dm == 0):
+                curr_vals += 50 ## pedestal dominates for beta decays
+            hh, be = np.histogram(curr_vals, bins=bins)
+            hlist.append(branching_fractions[j]*hh)
+            htot += branching_fractions[j]*hh
+
+        norm = np.sum(htot)
+        htot /= norm
+
+        bc = bins[:-1] + 0.5*np.diff(bins)
+
+        if(make_plots):
+            plt.figure()
+            plt.plot(bc, htot, 'k', label='Total')
+
+            for j,hh in enumerate(hlist):
+                plt.plot(bc, hh/norm, label=labels[j])
+
+            plt.xlabel("Reconstructed momentum [MeV]")
+            plt.ylabel("Probability density [MeV$^{-1}$]")
+            plt.xlim(0,350)
+
+        exp_bins = bc
+        exp_pdf = htot
+        epdf_ndof.append(exp_pdf)
+
+    return exp_bins, epdf_ndof
