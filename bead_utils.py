@@ -1345,3 +1345,22 @@ def calc_expected_spectrum(noise_vals, make_plots=False):
         epdf_ndof.append(exp_pdf)
 
     return exp_bins, epdf_ndof
+
+def get_edges_from_livetime_vec(live_vec, time_hours, dp_edges_orig):
+    ## take a boolean vector with livetimes and return the edges of cut out windows
+    thresh = 0.005 ## hrs
+    time_separation = np.diff(live_vec)
+    dead_periods = np.where(time_separation > thresh)[0] ## count any deadtime > 5 seconds
+
+    dead_period_edges = []
+    for j,dp in enumerate(dead_periods):
+        do_skip=False
+        for dp_orig in dp_edges_orig:
+            if(live_vec[dp] >= dp_orig[0]-thresh and live_vec[dp] <= dp_orig[1]+thresh): 
+                do_skip = True
+                break
+        if(do_skip): continue
+        dead_period_edges.append([live_vec[dp], live_vec[dp+1]])
+    dead_period_edges.append([live_vec[-1], time_hours[-1]])
+
+    return dead_period_edges
