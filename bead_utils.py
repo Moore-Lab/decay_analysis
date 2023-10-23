@@ -1017,8 +1017,8 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 
 def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[1,1], 
-                            drive_idx=drive_idx, plot_wind=3, charge_wind=5, charge_range=[-1,-1], 
-                            ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0):
+                            drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], 
+                            ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0, figout=None):
 
     nyquist =(attributes['Fsamp']/2)
 
@@ -1070,20 +1070,29 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
     coarse_diff[0] = 0 ## throw out edge effects
     coarse_diff[-1] = 0
 
-    if( xrange[0] < 0):
-        charge_change_idx = np.where(np.abs(coarse_diff) > np.std(coarse_diff)*3)[0]
-        ## group any neighbors
-        dups = np.where(np.abs(np.diff(charge_change_idx)) == 1)[0]
-        charge_change_idx = np.delete(charge_change_idx, dups+1)
-        if(len(charge_change_idx) != 1):
-            print("Warning, didn't find exactly 1 charge change")
-        charge_change_idx = charge_change_idx[0]
+    fine_diff = np.diff(corr_dat_fine)
+    coarse_diff[0:10] = 0 ## throw out edge effects
+    coarse_diff[-10:] = 0
 
-        xmin = tvec[coarse_points][charge_change_idx]-plot_wind
-        xmax = tvec[coarse_points][charge_change_idx]+plot_wind
+    if( xrange[0] < 0):
+        charge_change_idx = np.argmax(np.abs(coarse_diff))
+
+        cent = tvec[coarse_points][charge_change_idx]
+        #print("found coarse cent: ", cent)
+        ## now use the finely spaced data
+        fine_wind = (tvec[fine_points] > cent - 2*plot_wind_zoom) & (tvec[fine_points] < cent + 2*plot_wind_zoom)
+        charge_change_idx_fine = np.argmax(np.abs(fine_diff[fine_wind[:-1]]))
+        #print(charge_change_idx_fine)
+        cent += (tvec[fine_points][fine_wind][charge_change_idx_fine] - np.median(tvec[fine_points][fine_wind]))
+        #print("found fine cent: ", cent)
+
+        xmin = cent-plot_wind
+        xmax = cent+plot_wind
         
-        xmin_zoom = tvec[coarse_points][charge_change_idx]-plot_wind_zoom
-        xmax_zoom = tvec[coarse_points][charge_change_idx]+plot_wind_zoom
+        xmin_zoom = cent-plot_wind_zoom
+        xmax_zoom = cent+plot_wind_zoom
+
+        charge_range = [xmin_zoom, xmax_zoom]
 
     else:        
         xmin = xrange[0] 
@@ -1092,12 +1101,16 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
         cent = np.mean(xrange)
         xmin_zoom = cent - plot_wind_zoom
         xmax_zoom = cent + plot_wind_zoom
-        charge_change_idx = np.argmin(np.abs(tvec[coarse_points]-cent))
+       
+    charge_change_idx = np.argmin(np.abs(tvec[coarse_points]-cent))
 
     charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
     charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
     
-    figout = plt.figure(figsize=(21,12))
+    if(not figout):
+        figout = plt.figure(figsize=(21,12))
+        
+    plt.figure(figout.number)
     coord_dat = [x_position_data, y_position_data, z_position_data]
     range_fac = [1,0.8,0.35]
     xlims = [[0, tvec[-1]], [xmin, xmax], [xmin_zoom, xmax_zoom]]
@@ -1170,7 +1183,7 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
     #plt.tight_layout()
 
     step_params = [max_vals[0], max_vals[1], charge_after-charge_before]
-    return figout, step_params
+    return step_params
 
 
 def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], drive_idx=drive_idx, 
