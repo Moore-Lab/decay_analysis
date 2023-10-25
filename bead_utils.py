@@ -679,62 +679,212 @@ def find_crossing_indices(signal, threshold):
 
     return rising_edges, falling_edges
 
-def get_average_template(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx):
+def get_average_template(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx, coords_to_use=['x']):
     
     pulse_dict = {}
     fit_dict = {}
     fit_vals = []
 
+    coords_dict = {'x': x_idx, 'y': x_idx+1, 'z': x_idx+2}
+
     for impulse_amp in calib_dict.keys():
 
         curr_files = calib_dict[impulse_amp]
 
-        curr_temp = 0
-        for fname in curr_files:
-            cdat, attr, _ = get_data(fname)
+        if(make_plots):
+            plt.figure(figsize=(6, len(coords_to_use)*4))
 
-            ## find the impulse times
-            drive_file = cdat[:,drive_idx]
-            impulse_times, _ = find_crossing_indices(drive_file/np.max(drive_file), 0.5)
-            window_length = 4000
+        curr_dict = {}
+        curr_fit_dict = {}
+        for j, coord in enumerate(coords_to_use):
+            curr_temp = 0
+            for fname in curr_files:
+                cdat, attr, _ = get_data(fname)
 
-            for time_idx in impulse_times:
+                ## find the impulse times
+                drive_file = cdat[:,drive_idx]
+                impulse_times, _ = find_crossing_indices(drive_file/np.max(drive_file), 0.5)
+                window_length = 4000
 
-                ## make sure the full impulse is contained
-                if(time_idx + window_length/2 >= len(cdat[:,x_idx]) or 
-                   time_idx < window_length/2):
-                    continue
-                sidx = int(time_idx-window_length/2)
-                eidx = int(time_idx+window_length/2)
-                curr_temp += cdat[sidx:eidx,x_idx]
+                for time_idx in impulse_times:
+                    coord_idx = coords_dict[coord]
+                    ## make sure the full impulse is contained
+                    if(time_idx + window_length/2 >= len(cdat[:,coord_idx]) or 
+                    time_idx < window_length/2):
+                        continue
+                    sidx = int(time_idx-window_length/2)
+                    eidx = int(time_idx+window_length/2)
+                    curr_temp += cdat[sidx:eidx,coord_idx]
 
-        curr_temp -= np.median(curr_temp[:int(window_length/4)]) #baseline sub
-        curr_temp /= np.max(curr_temp) ## normalize to unity amplitude
-        pulse_dict[impulse_amp] = curr_temp
+            curr_temp -= np.median(curr_temp[:int(window_length/4)]) #baseline sub
 
-        ## also fit to a damped harmonic oscillator
+            if(len(coords_to_use)==1): ## backwards compatibility
+                curr_temp /= np.max(curr_temp) ## normalize to unity amplitude
+                pulse_dict[impulse_amp] = curr_temp
+            else:
+                curr_dict[coord] = curr_temp
+
+            ## also fit to a damped harmonic oscillator
+            tvec = np.arange(len(curr_temp))/attr['Fsamp']
+            if(len(fit_pars)>0):
+                bp, bc = curve_fit(impulse_response, tvec, curr_temp, p0=fit_pars)
+            else:
+                bp = [0,0,0,0]
+                bc = np.zeros((len(bp), len(bp)))
+
+            if(len(coords_to_use)==1): ## backwards compatibility
+                fit_dict[impulse_amp] = impulse_response(tvec, *bp)
+                ## save fit parameters as well
+            else:
+                curr_fit_dict[impulse_amp] = impulse_response(tvec, *bp)          
+
+            fit_vals.append( [impulse_amp, bp[1], np.sqrt(bc[1,1]), bp[2], np.sqrt(bc[2,2]), j] )
+
+            if(make_plots):
+                plt.subplot(len(coords_to_use), 1, j+1)
+                plt.plot(tvec, curr_temp)
+                plt.plot(tvec, impulse_response(tvec, *bp))
+                plt.title("Impulse amplitude = %d MeV"%impulse_amp)
+                plt.xlabel("Time (s)")
+                plt.ylabel("Normalized amplitude [arb units]")
+
+        if(len(coords_to_use)>1):
+            pulse_dict[impulse_amp] = curr_dict 
+            fit_dict[impulse_amp] = curr_fit_dict 
+
+    return pulse_dict, fit_dict, np.array(fit_vals)
+
+def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx, coords_to_use=['x', 'y', 'z'], xrange=[-1,-1]):
+    ## version of the function to make templates for all 3 coordinates (x, y, z)
+
+    pulse_dict = {}
+    fit_dict = {}
+    fit_vals = {}
+
+    coords_dict = {'x': x_idx, 'y': x_idx+1, 'z': x_idx+2}
+    drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
+
+    if(make_plots):
+        plt.figure(figsize=(18, len(coords_to_use)*4))
+
+    norm_dict = {}
+    impulse_amp_list = []
+    for j, coord in enumerate(coords_to_use): ## coord in which the drive is applied
+        
+        pulse_dict[coord] = {}
+        fit_dict[coord] = {}
+        fit_vals[coord] = {}
+
+        #for impulse_amp in calib_dict.keys():
+        #choose the smallest impulse amp for each coordinate
+        impulse_amp = np.min(list(calib_dict[coord].keys()))
+        impulse_amp_list.append(impulse_amp)
+
+        curr_files = calib_dict[coord][impulse_amp]
+
+        for k, resp_coord in enumerate(coords_to_use): ## coord to look at response for
+            
+            coord_idx = coords_dict[resp_coord]
+            drive_coord_idx = drive_dict[coord]
+
+            curr_temp = 0
+            for fname in curr_files:
+
+                cdat, attr, _ = get_data(fname)
+
+                ## find the impulse times
+                drive_file = cdat[:,drive_coord_idx]
+                impulse_times, _ = find_crossing_indices(drive_file/np.max(drive_file), 0.5)
+                window_length = 4000
+
+                for time_idx in impulse_times:
+                    ## make sure the full impulse is contained
+                    if(time_idx + window_length/2 >= len(cdat[:,coord_idx]) or 
+                    time_idx < window_length/2):
+                        continue
+                    sidx = int(time_idx-window_length/2)
+                    eidx = int(time_idx+window_length/2)
+                    curr_temp += cdat[sidx:eidx,coord_idx]
+
+            curr_temp -= np.median(curr_temp[:int(window_length/4)]) #baseline sub
+            pulse_dict[coord][resp_coord] = curr_temp
+
+            if( resp_coord == coord):
+                norm_dict[coord] = np.max(np.abs(curr_temp))
+
+    ## now go back through, normalize, and fit
+    ## first fit the diagonal elements
+    for j, coord in enumerate(coords_to_use):
+        #for k, resp_coord in enumerate(coords_to_use): ## coord to look at response for
+            ## also fit to a damped harmonic oscillator
+        resp_coord = coord
+        pulse_dict[coord][resp_coord] /= norm_dict[coord]
+
+        curr_temp = pulse_dict[coord][resp_coord]
         tvec = np.arange(len(curr_temp))/attr['Fsamp']
         if(len(fit_pars)>0):
-            bp, bc = curve_fit(impulse_response, tvec, curr_temp, p0=fit_pars)
-            fit_dict[impulse_amp] = impulse_response(tvec, *bp)
+            bp, bc = curve_fit(impulse_response, tvec, curr_temp, p0=fit_pars[coord])
         else:
             bp = [0,0,0,0]
             bc = np.zeros((len(bp), len(bp)))
 
-        ## save fit parameters as well
-        fit_vals.append( [impulse_amp, bp[1], np.sqrt(bc[1,1]), bp[2], np.sqrt(bc[2,2])] )
+        fit_dict[coord][resp_coord] = impulse_response(tvec, *bp)
+        fit_vals[coord][resp_coord] = bp
 
-        if(make_plots):
-            
-            plt.figure()
-            plt.plot(tvec, curr_temp)
-            plt.plot(tvec, impulse_response(tvec, *bp))
-            plt.title("Impulse amplitude = %d MeV"%impulse_amp)
-            plt.xlabel("Time (s)")
-            plt.ylabel("Normalized amplitude [arb units]")
-            plt.show()
+    ## now fit the off diagonal elements with a cross talk and a cross force term
+    for j, coord in enumerate(coords_to_use):
+            for k, resp_coord in enumerate(coords_to_use): ## coord to look at response for
+                
+                if(k == j): continue
 
-    return pulse_dict, fit_dict, np.array(fit_vals)
+                pulse_dict[coord][resp_coord] /= norm_dict[coord]
+
+                curr_temp = pulse_dict[coord][resp_coord]
+                tvec = np.arange(len(curr_temp))/attr['Fsamp']
+                curr_func = lambda tvec, Ax, Ay, Az: Ax*impulse_response(tvec, *fit_vals['x']['x']) + Ay*impulse_response(tvec, *fit_vals['y']['y']) + Az*impulse_response(tvec, *fit_vals['z']['z'])
+                if(len(fit_pars)>0):
+                    #fcoord = fit_vals[coord][coord]
+                    #omega1, gamma1, t01 = fcoord[1], fcoord[3], fcoord[5] 
+                    #fcoord = fit_vals[resp_coord][resp_coord]
+                    #omega2, gamma2, t02 = fcoord[1], fcoord[3], fcoord[5] 
+
+                    #curr_func = lambda tvec, A, B: impulse_response(tvec, A, omega1, gamma1, t01) + impulse_response(tvec, B, omega2, gamma2, t02)
+                    bp, bc = curve_fit(curr_func, tvec, curr_temp, p0=[1, 1, 1])
+                else:
+                    bp = [0,0,0]
+                    bc = np.zeros((len(bp), len(bp)))
+
+                fit_dict[coord][resp_coord] = curr_func(tvec, *bp)
+                fit_vals[coord][resp_coord] = bp
+
+    if(make_plots):
+        ## now fit the off diagonal elements with a cross talk and a cross force term
+        for j, coord in enumerate(coords_to_use):
+                for k, resp_coord in enumerate(coords_to_use): ## coord to look at response for        
+
+                    subplot_idx = k*len(coords_to_use) + j + 1 
+                    curr_temp = pulse_dict[coord][resp_coord]
+
+                    plt.subplot(len(coords_to_use), len(coords_to_use), subplot_idx)
+                    plt.plot(tvec, curr_temp)
+                    plt.plot(tvec, fit_dict[coord][resp_coord])
+                    if(k == 0):
+                        plt.title("Impulse amplitude = %d MeV (%s dir)"%(impulse_amp_list[j], coord))
+                    if(k == 2):
+                        plt.xlabel("Time (s)")
+                    else:
+                        plt.gca().set_xticks([])
+                    if(j == 0):
+                        plt.ylabel("Normalized %s amplitude [arb units]"%resp_coord)
+                    else:
+                        plt.gca().set_yticks([])
+                    plt.ylim(-1.1,1.1)
+                    if(xrange[0]>0):
+                        plt.xlim(xrange)
+
+        plt.subplots_adjust(hspace=0, wspace=0)
+
+    return pulse_dict, fit_dict, fit_vals
 
 def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], 
                   omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=False, 
