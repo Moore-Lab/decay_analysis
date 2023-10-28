@@ -245,6 +245,75 @@ def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
 
     return noise_dict
 
+
+def get_noise_template_3D(noise_files, fit_vals, nfft=-1):
+    ## take noise files and find the average PSD for use in the optimal filter
+
+    coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
+    noise_dict = {}
+
+    range_dict = {'x': [5,115], 'y': [5,200], 'z': [5,800]}
+
+    plt.figure(figsize=(20,5))
+
+    for cidx, coord in enumerate(coords_dict.keys()):
+        noise_dict[coord] = {}
+        coord_idx = coords_dict[coord]
+        J = 0
+        nfiles = 0
+
+        res_pars = [fit_vals[coord][coord][1], fit_vals[coord][coord][2]]
+
+        for nf in noise_files:
+            cdat, attr, _ = get_data(nf)
+
+            if(nfft < 0):
+                nfft_to_use = len(cdat[:,coord_idx])
+            else:
+                nfft_to_use = nfft
+
+            cf, cpsd = sp.welch(cdat[:,coord_idx], fs=attr['Fsamp'], nperseg=nfft_to_use)
+
+            J += cpsd
+            nfiles += 1
+
+        J /= nfiles
+
+        ## expected for resonator params
+        eta = 2*res_pars[1]/res_pars[0]
+        omega0, gamma = res_pars[0]/np.sqrt(1 - eta**2), 2*res_pars[1] ## factor of two by definition
+        omega = 2*np.pi*cf
+        sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
+        res_pos = np.argmin( np.abs(omega0-omega) )
+        sphere_tf *= np.median(J[(res_pos-10):(res_pos+10)]/np.median(sphere_tf[(res_pos-10):(res_pos+10)]))
+        if(coord == 'z'):
+            sphere_tf *= 0.075
+
+        Jout = 1.0*J
+        ## old signal to noise based version
+        Jout[J/sphere_tf > 20] = 1e20
+        ## just cut frequencies instead
+        bad_freqs = (cf < range_dict[coord][0]) | (cf > range_dict[coord][1])
+        Jout[bad_freqs] = 1e20
+
+        plt.subplot(1,3,cidx+1)
+        plt.semilogy(cf, J, 'k', label="Measured")
+        plt.semilogy(cf, sphere_tf, "-", color='orange', label="Expected")
+        plt.semilogy(cf, Jout, 'b', label="Filter")
+        plt.xlim(0,range_dict[coord][1]*1.5)
+        gpts = (cf > 1) & (cf<200)
+        plt.ylim(0.1*np.min(J[gpts]), 10*np.max(J[gpts]))
+        plt.xlabel("Frequency [Hz]")
+        plt.ylabel("PSD [V$^2$/Hz]")
+        plt.legend(loc="upper right")
+        plt.title("%s direction"%coord)
+
+        noise_dict[coord] = {"freq": cf, "J": Jout, "Jorig": J}
+    plt.show()
+
+    return noise_dict
+
+
 def plot_charge_steps(charge_vec):
     dt = []
     for j,t in enumerate(charge_vec[:,0]):
@@ -1168,11 +1237,12 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
                  downsamp=30, cal_fac=1, drive_idx=drive_idx, 
-                 subtract_sine_step=False, make_plots=False):
+                 subtract_sine_step=False, make_plots=False, coord='x'):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
-    coord = 'x'
+    coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
+    drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
 
     curr_template = template_dict[coord][coord]
     
@@ -1180,7 +1250,8 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
     nsamp_before = np.where(np.abs(curr_template)>0)[0][0]
     curr_template = np.roll(curr_template,-nsamp_before + time_offset)
 
-    for impulse_amp in calib_dict[coord].keys():
+    for amp_idx, impulse_amp in enumerate(calib_dict[coord].keys()):
+        if(amp_idx>0): break
 
         curr_files = calib_dict[coord][impulse_amp]
         cdat, attr, _ = get_data(curr_files[0])
@@ -1191,7 +1262,7 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
 
         stilde = np.conjugate(np.fft.rfft(curr_template))
         sfreq = np.fft.rfftfreq(len(curr_template),d=1/attr['Fsamp'])
-        J = np.interp(sfreq, noise_dict['freq'], noise_dict['J'])
+        J = np.interp(sfreq, noise_dict[coord]['freq'], noise_dict[coord]['J'])
 
         gpts = J < 1e10 ## points to use in sum
         
@@ -1208,7 +1279,7 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             print("Working on file: %s"%fname)
             cdat, attr, _ = get_data(fname)
             fs = attr['Fsamp']
-            xdata = cdat[:,x_idx]
+            xdata = cdat[:,coords_dict[coord]]
             
             xtilde = np.fft.rfft(xdata)[gpts]
 
@@ -1217,7 +1288,7 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 corr_data[j] = np.sum(stilde * xtilde * np.exp(-1j * omega_n * t0)/J)
 
             impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
-                                             drive_idx=drive_idx, drive_freq = 120)
+                                             drive_idx=drive_dict[coord], drive_freq = 120)
 
             corr_vals = []
             corr_idx = []
@@ -1228,7 +1299,7 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 sidx, eidx = icd-wind, icd+wind
                 if(sidx < 0): sidx = 0
                 if(eidx  >= len(corr_data)): eidx = len(corr_data)-1
-                current_search = corr_data[sidx:eidx]
+                current_search = np.abs(corr_data[sidx:eidx])
                 corr_vals.append(np.max(current_search))
                 corr_idx.append(sidx+np.argmax(current_search))
                 idx_offsets.append( np.argmax(current_search) - wind)
@@ -1240,8 +1311,8 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 fstr = str.split(fname,'/')[-1]
                 sfac = cal_fac
                 plt.figure(figsize=(15,3))
-                nfac = 1/np.max(cdat[:,drive_idx])
-                plt.plot(tvec, cdat[:,drive_idx]*nfac)
+                nfac = 1/np.max(cdat[:,drive_dict[coord]])
+                plt.plot(tvec, cdat[:,drive_dict[coord]]*nfac)
                 #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
                 plt.plot(tvec[::downsamp], np.abs(corr_data*sfac) )
                 plt.plot(tvec[::downsamp][corr_idx], np.abs(corr_vals)*sfac, 'ro')
