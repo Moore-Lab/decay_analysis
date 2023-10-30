@@ -10,6 +10,7 @@ from scipy.special import erf
 import scipy.stats
 from natsort import natsorted
 import matplotlib.dates as mdates
+import numexpr as ne
 
 ## columns in the data files
 x_idx, y_idx, z_idx = 0, 1, 2
@@ -309,7 +310,6 @@ def get_noise_template_3D(noise_files, fit_vals, nfft=-1):
         plt.title("%s direction"%coord)
 
         noise_dict[coord] = {"freq": cf, "J": Jout, "Jorig": J}
-    plt.show()
 
     return noise_dict
 
@@ -1266,6 +1266,8 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
 
         gpts = J < 1e10 ## points to use in sum
         
+        prefac_orig = stilde/J
+
         t0_vec = np.arange(0,Npts,downsamp)
         omega_n = np.arange(Npts/2 + 1) * 2*np.pi/Npts
         stilde = stilde[gpts]
@@ -1281,11 +1283,10 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             fs = attr['Fsamp']
             xdata = cdat[:,coords_dict[coord]]
             
-            xtilde = np.fft.rfft(xdata)[gpts]
-
-            corr_data = np.zeros_like(t0_vec)
-            for j,t0 in enumerate(t0_vec):
-                corr_data[j] = np.sum(stilde * xtilde * np.exp(-1j * omega_n * t0)/J)
+            xtilde = np.fft.rfft(xdata)
+            corr_data = np.fft.irfft(prefac_orig * xtilde)[::-1] ## by far most efficient to use fft for this time offset
+                                                                     ## note we have to reverse the vector because of the def'n
+                                                                     ## of irfft (we could use fft but not with rfft variants)
 
             impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
                                              drive_idx=drive_dict[coord], drive_freq = 120)
@@ -1320,6 +1321,8 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
                 plt.ylim(0,2)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
+            
+            break
 
     return filt_dict
 
