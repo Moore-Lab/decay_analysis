@@ -1236,7 +1236,7 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 
 def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
-                 downsamp=30, cal_fac=1, drive_idx=drive_idx, 
+                 cal_fac=1, drive_idx=drive_idx, 
                  subtract_sine_step=False, make_plots=False, coord='x'):
     ## optimally filter including noise spectrum
     filt_dict = {}
@@ -1266,27 +1266,21 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
 
         gpts = J < 1e10 ## points to use in sum
         
-        prefac_orig = stilde/J
-
-        t0_vec = np.arange(0,Npts,downsamp)
-        omega_n = np.arange(Npts/2 + 1) * 2*np.pi/Npts
-        stilde = stilde[gpts]
-        J = J[gpts]
-        omega_n = omega_n[gpts]
+        prefac = stilde/J
 
         filt_dict[impulse_amp] = []
         off_key = str(impulse_amp) + "_offsets"
         filt_dict[off_key] = []
         for fname in curr_files:
-            print("Working on file: %s"%fname)
+            #print("Working on file: %s"%fname)
             cdat, attr, _ = get_data(fname)
             fs = attr['Fsamp']
             xdata = cdat[:,coords_dict[coord]]
             
             xtilde = np.fft.rfft(xdata)
-            corr_data = np.fft.irfft(prefac_orig * xtilde)[::-1] ## by far most efficient to use fft for this time offset
-                                                                     ## note we have to reverse the vector because of the def'n
-                                                                     ## of irfft (we could use fft but not with rfft variants)
+            corr_data = np.fft.irfft(prefac * xtilde)[::-1] ## by far most efficient to use fft for this time offset
+                                                            ## note we have to reverse the vector because of the def'n
+                                                            ## of irfft (we could use fft but not with rfft variants)
 
             impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
                                              drive_idx=drive_dict[coord], drive_freq = 120)
@@ -1294,9 +1288,9 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             corr_vals = []
             corr_idx = []
             idx_offsets = []
-            wind=int(1000/downsamp)
+            wind=int(1000)
             for ic in impulse_cent:
-                icd = int(ic/downsamp)
+                icd = int(ic)
                 sidx, eidx = icd-wind, icd+wind
                 if(sidx < 0): sidx = 0
                 if(eidx  >= len(corr_data)): eidx = len(corr_data)-1
@@ -1315,14 +1309,12 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 nfac = 1/np.max(cdat[:,drive_dict[coord]])
                 plt.plot(tvec, cdat[:,drive_dict[coord]]*nfac)
                 #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
-                plt.plot(tvec[::downsamp], np.abs(corr_data*sfac) )
-                plt.plot(tvec[::downsamp][corr_idx], np.abs(corr_vals)*sfac, 'ro')
+                plt.plot(tvec, np.abs(corr_data*sfac) )
+                plt.plot(tvec[corr_idx], np.abs(corr_vals)*sfac, 'ro')
                 plt.xlim(0, 10)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
                 plt.ylim(0,2)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
-            
-            break
 
     return filt_dict
 
