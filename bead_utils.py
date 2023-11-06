@@ -1235,7 +1235,7 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
     return filt_dict, phi_t
 
 
-def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
+def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
                  cal_fac=1, drive_idx=drive_idx, 
                  subtract_sine_step=False, make_plots=False, coord='x'):
     ## optimally filter including noise spectrum
@@ -1251,7 +1251,7 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
     curr_template = np.roll(curr_template,-nsamp_before + time_offset)
 
     for amp_idx, impulse_amp in enumerate(calib_dict[coord].keys()):
-        if(amp_idx>0): break
+        #if(amp_idx>0): break
 
         curr_files = calib_dict[coord][impulse_amp]
         cdat, attr, _ = get_data(curr_files[0])
@@ -1278,7 +1278,7 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             xdata = cdat[:,coords_dict[coord]]
             
             xtilde = np.fft.rfft(xdata)
-            corr_data = np.fft.irfft(prefac * xtilde)[::-1] ## by far most efficient to use fft for this time offset
+            corr_data = np.fft.irfft(prefac * xtilde) #[::-1] ## by far most efficient to use fft for this time offset
                                                             ## note we have to reverse the vector because of the def'n
                                                             ## of irfft (we could use fft but not with rfft variants)
 
@@ -1288,7 +1288,7 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             corr_vals = []
             corr_idx = []
             idx_offsets = []
-            wind=int(1000)
+            wind=10
             for ic in impulse_cent:
                 icd = int(ic)
                 sidx, eidx = icd-wind, icd+wind
@@ -1311,10 +1311,164 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
                 plt.plot(tvec, np.abs(corr_data*sfac) )
                 plt.plot(tvec[corr_idx], np.abs(corr_vals)*sfac, 'ro')
-                plt.xlim(0, 10)
+                plt.xlim(1,2)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
                 plt.ylim(0,2)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
+
+    return filt_dict
+
+
+def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
+                 drive_idx=drive_idx, make_plots=False, coord=['x','y','z']):
+    
+    ## optimally filter including noise spectrum
+    filt_dict = {}
+
+    coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
+    drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
+
+    ## need to roll this template to start at zero or else we will have an offset
+    nsamp_before = np.where(np.abs(template_dict['x']['x'])>0)[0][0]
+
+    impulse_amp = list(calib_dict[coord[0]].keys())
+    curr_files = calib_dict[coord[0]][impulse_amp[0]]
+    cdat, attr, _ = get_data(curr_files[0])
+    Npts = len(cdat[:,x_idx])
+    sfreq = np.fft.rfftfreq(Npts,d=1/attr['Fsamp'])
+
+    noise_scale = [1,1,1]
+
+    ## first assemble the required matrix, M
+    M = np.zeros((len(coord), len(coord)))
+    ct_dict = {}
+    cj_dict = {}
+    for i,drive_coord in enumerate(coord):
+        ct_dict[drive_coord] = {}
+        for j,resp_coord in enumerate(coord):
+            
+            curr_template = template_dict[drive_coord][resp_coord]
+            ## zero pad the current_template
+            curr_template = np.hstack((curr_template, np.zeros(Npts-len(curr_template))))
+            curr_template = np.roll(curr_template,-nsamp_before + time_offset)
+            stilde = np.conjugate(np.fft.rfft(curr_template))
+            ct_dict[drive_coord][resp_coord] = stilde
+
+            if(i == 0):
+                J = np.interp(sfreq, noise_dict[resp_coord]['freq'], noise_dict[resp_coord]['J'])
+                cj_dict[resp_coord] = J*noise_scale[j]
+
+    
+    ## now that we have all the templates, loop back over to make the matrix
+    for i,drive_coord in enumerate(coord):
+        for j,resp_coord in enumerate(coord):
+            curr_mat_el = 0
+            ## sum over alpha
+            for alpha_coord in coord:
+                stemp = np.conjugate(ct_dict[resp_coord][alpha_coord]) * ct_dict[drive_coord][alpha_coord]
+                curr_mat_el += np.real(np.sum(stemp/cj_dict[alpha_coord]))
+            M[j,i] = curr_mat_el
+            #if(i != j): M[i,j] = 0
+    Minv = np.linalg.inv(M)
+    #print(M)
+    #print(Minv)
+
+    ## now process all the files
+    for dc_idx, drive_coord in enumerate(coord):
+
+        #if(dc_idx != 0): continue
+
+        filt_dict[drive_coord] = {}
+
+        ## now loop over files
+        for amp_idx, impulse_amp in enumerate(calib_dict[drive_coord].keys()):
+
+            curr_files = calib_dict[drive_coord][impulse_amp]
+
+            filt_dict[drive_coord][impulse_amp] = []
+            off_key = str(impulse_amp) + "_offsets"
+            filt_dict[drive_coord][off_key] = []
+
+            for fname in curr_files[:1]:
+                #print("Working on file: %s"%fname)
+                cdat, attr, _ = get_data(fname)
+                fs = attr['Fsamp']
+                
+                ## rows are coordinates, columns freq idx
+                n = len(cdat[:,0])
+                nfft_pts = int((n/2)+1) if n%2==0 else int((n+1)/2)
+                coord_vec = np.zeros((len(coord), nfft_pts), dtype=complex)
+                for coord_idx in range(len(coord)):
+                    coord_vec[coord_idx, :] = np.fft.rfft(cdat[:,coords_dict[coord[coord_idx]]])
+                
+                ## now assemble the b vector by looping over the coordinates
+                btilde = np.zeros_like(coord_vec, dtype=complex)            
+                for rc_idx, resp_coord in enumerate(coord):
+                    for alpha_coord in coord:
+                        #if(alpha_coord != resp_coord): continue
+
+                        xtemp = coord_vec[rc_idx,:] * ct_dict[resp_coord][alpha_coord]
+                        btilde[rc_idx, :] += xtemp/cj_dict[alpha_coord]
+
+                        # curr_template = template_dict['y']['y']
+                        # curr_template = np.hstack((curr_template, np.zeros(Npts-len(curr_template))))
+                        # curr_template = np.roll(curr_template,-nsamp_before + time_offset)
+                        # stilde = np.conjugate(np.fft.rfft(curr_template))
+                        # sfreq = np.fft.rfftfreq(len(curr_template),d=1/attr['Fsamp'])
+                        # J = np.interp(sfreq, noise_dict['y']['freq'], noise_dict['y']['J'])
+                        # xdata = cdat[:,coords_dict['y']]
+                        # xtilde = np.fft.rfft(xdata)
+                        # if(resp_coord=='y'):
+                        #     plt.figure()
+                        #     plt.loglog(cj_dict[alpha_coord])
+                        #     plt.loglog(J)
+                        #     print(resp_coord, ": 1 :", cj_dict[alpha_coord])
+                        #     print(resp_coord, ": 2 :", J)
+
+                ## now inverse FFT back
+                b = np.fft.irfft(btilde, axis=1) #, axis=1)
+
+                ## finally to get the optimal amplitudes, then multiple by inverse of M:
+                corr_matrix = Minv @ b
+                
+                impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
+                                                drive_idx=drive_dict[drive_coord], drive_freq = 120)
+
+                corr_data = np.abs(corr_matrix[dc_idx,:])
+
+                corr_vals = []
+                corr_idx = []
+                idx_offsets = []
+                wind=10
+                for ic in impulse_cent:
+                    icd = int(ic)
+                    sidx, eidx = icd-wind, icd+wind
+                    if(sidx < 0): sidx = 0
+                    if(eidx  >= len(corr_data)): eidx = len(corr_data)-1
+                    current_search = np.abs(corr_data[sidx:eidx])
+                    corr_vals.append(np.max(current_search))
+                    corr_idx.append(sidx+np.argmax(current_search))
+                    idx_offsets.append( np.argmax(current_search) - wind)
+                filt_dict[drive_coord][impulse_amp] = np.hstack((filt_dict[drive_coord][impulse_amp], corr_vals))
+                filt_dict[drive_coord][off_key] = np.hstack((filt_dict[drive_coord][off_key], idx_offsets))
+
+                if(make_plots):
+                    tvec = np.arange(Npts)/attr['Fsamp']
+                    fstr = str.split(fname,'/')[-1]
+
+                    plt.figure(figsize=(15,10))
+                    for figidx in range(len(coord)):
+                        plt.subplot(len(coord), 1, figidx+1)
+                        nfac = 1/np.max(cdat[:,drive_dict[drive_coord]])
+                        sfac = 1/np.median(np.abs(corr_matrix[dc_idx,corr_idx]))
+                        plt.plot(tvec, cdat[:,drive_dict[drive_coord]]*nfac)
+                        #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
+                        plt.plot(tvec, np.abs(corr_matrix[figidx,:])*sfac )
+                        plt.plot(tvec[corr_idx], np.abs(corr_matrix[figidx,corr_idx])*sfac, 'ro')
+                        plt.xlim(1,2)
+                        plt.ylim(0,2)
+                        plt.title("opt filt 3D: drive %s resp %s, amp="%(drive_coord,coord[figidx]) + str(impulse_amp) + ", " + fstr)    
+
 
     return filt_dict
 
