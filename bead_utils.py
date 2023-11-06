@@ -458,6 +458,23 @@ def plot_correlation_with_drive(dat, template, attr, skip_drive=False, lp_freq=2
 
     return np.median(corr_vec_rms), corr_vec_rms
 
+def get_lamp_and_filament(dat, npts):
+
+    lamp_thresh = 0.1 ## threshold for lamp above which it is on
+    filament_thresh = 0.1
+    fil_col = 12
+    lamp_col = 13
+
+    nsegs = int(len(dat[:,0])/npts)
+
+    lamp_dat = np.zeros(nsegs, dtype='bool')
+    fil_dat = np.zeros(nsegs, dtype='bool')
+
+    for n in range(nsegs):
+        lamp_dat[n] = np.max(dat[(n*npts):((n+1)*npts),lamp_col]) > lamp_thresh
+        fil_dat[n] = np.max(dat[(n*npts):((n+1)*npts),fil_col]) > filament_thresh
+    
+    return lamp_dat, fil_dat
 
 def labview_time_to_datetime(lt):
     ### Convert a labview timestamp (i.e. time since 1904) to a 
