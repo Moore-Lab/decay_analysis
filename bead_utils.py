@@ -1237,12 +1237,15 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
                  cal_fac=1, drive_idx=drive_idx, 
-                 subtract_sine_step=False, make_plots=False, coord='x'):
+                 subtract_sine_step=False, make_plots=False, coord='x', resp_coord=''):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
     coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
     drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
+
+    if(len(resp_coord)==0): ## if we don't specify, assume we want in same direction as drive
+        resp_coord = coord
 
     curr_template = template_dict[coord][coord]
     
@@ -1275,7 +1278,7 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             #print("Working on file: %s"%fname)
             cdat, attr, _ = get_data(fname)
             fs = attr['Fsamp']
-            xdata = cdat[:,coords_dict[coord]]
+            xdata = cdat[:,coords_dict[resp_coord]]
             
             xtilde = np.fft.rfft(xdata)
             corr_data = np.fft.irfft(prefac * xtilde) #[::-1] ## by far most efficient to use fft for this time offset
@@ -1320,7 +1323,7 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
 
 
 def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
-                 drive_idx=drive_idx, make_plots=False, coord=['x','y','z']):
+                 drive_idx=drive_idx, make_plots=False, coord=['x','y','z'], noise_scale = [1,1,1]):
     
     ## optimally filter including noise spectrum
     filt_dict = {}
@@ -1336,8 +1339,6 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
     cdat, attr, _ = get_data(curr_files[0])
     Npts = len(cdat[:,x_idx])
     sfreq = np.fft.rfftfreq(Npts,d=1/attr['Fsamp'])
-
-    noise_scale = [1,1,1]
 
     ## first assemble the required matrix, M
     M = np.zeros((len(coord), len(coord)))
@@ -1379,6 +1380,8 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
         #if(dc_idx != 0): continue
 
         filt_dict[drive_coord] = {}
+        for resp_coord in coord:
+            filt_dict[drive_coord][resp_coord] = {}
 
         ## now loop over files
         for amp_idx, impulse_amp in enumerate(calib_dict[drive_coord].keys()):
@@ -1388,8 +1391,10 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             filt_dict[drive_coord][impulse_amp] = []
             off_key = str(impulse_amp) + "_offsets"
             filt_dict[drive_coord][off_key] = []
+            for resp_coord in coord:
+                filt_dict[drive_coord][resp_coord][impulse_amp] = []
 
-            for fname in curr_files[:1]:
+            for fname in curr_files:
                 #print("Working on file: %s"%fname)
                 cdat, attr, _ = get_data(fname)
                 fs = attr['Fsamp']
@@ -1409,21 +1414,6 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
 
                         xtemp = coord_vec[rc_idx,:] * ct_dict[resp_coord][alpha_coord]
                         btilde[rc_idx, :] += xtemp/cj_dict[alpha_coord]
-
-                        # curr_template = template_dict['y']['y']
-                        # curr_template = np.hstack((curr_template, np.zeros(Npts-len(curr_template))))
-                        # curr_template = np.roll(curr_template,-nsamp_before + time_offset)
-                        # stilde = np.conjugate(np.fft.rfft(curr_template))
-                        # sfreq = np.fft.rfftfreq(len(curr_template),d=1/attr['Fsamp'])
-                        # J = np.interp(sfreq, noise_dict['y']['freq'], noise_dict['y']['J'])
-                        # xdata = cdat[:,coords_dict['y']]
-                        # xtilde = np.fft.rfft(xdata)
-                        # if(resp_coord=='y'):
-                        #     plt.figure()
-                        #     plt.loglog(cj_dict[alpha_coord])
-                        #     plt.loglog(J)
-                        #     print(resp_coord, ": 1 :", cj_dict[alpha_coord])
-                        #     print(resp_coord, ": 2 :", J)
 
                 ## now inverse FFT back
                 b = np.fft.irfft(btilde, axis=1) #, axis=1)
@@ -1449,8 +1439,14 @@ def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                     corr_vals.append(np.max(current_search))
                     corr_idx.append(sidx+np.argmax(current_search))
                     idx_offsets.append( np.argmax(current_search) - wind)
+
+                ## orig vals
                 filt_dict[drive_coord][impulse_amp] = np.hstack((filt_dict[drive_coord][impulse_amp], corr_vals))
                 filt_dict[drive_coord][off_key] = np.hstack((filt_dict[drive_coord][off_key], idx_offsets))
+
+                for rc_idx, resp_coord in enumerate(coord):
+                    amp_vals = corr_matrix[rc_idx, corr_idx]
+                    filt_dict[drive_coord][resp_coord][impulse_amp] = np.hstack((filt_dict[drive_coord][resp_coord][impulse_amp], amp_vals))
 
                 if(make_plots):
                     tvec = np.arange(Npts)/attr['Fsamp']
