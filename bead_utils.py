@@ -247,13 +247,11 @@ def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
     return noise_dict
 
 
-def get_noise_template_3D(noise_files, fit_vals, nfft=-1):
+def get_noise_template_3D(noise_files, fit_vals, range_dict, nfft=-1):
     ## take noise files and find the average PSD for use in the optimal filter
 
     coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
     noise_dict = {}
-
-    range_dict = {'x': [5,115], 'y': [5,200], 'z': [5,800]}
 
     plt.figure(figsize=(20,5))
 
@@ -265,7 +263,7 @@ def get_noise_template_3D(noise_files, fit_vals, nfft=-1):
 
         res_pars = [fit_vals[coord][coord][1], fit_vals[coord][coord][2]]
 
-        for nf in noise_files:
+        for nidx, nf in enumerate(noise_files):
             cdat, attr, _ = get_data(nf)
 
             if(nfft < 0):
@@ -275,10 +273,13 @@ def get_noise_template_3D(noise_files, fit_vals, nfft=-1):
 
             cf, cpsd = sp.welch(cdat[:,coord_idx], fs=attr['Fsamp'], nperseg=nfft_to_use)
 
-            J += cpsd
+            if(nidx==0):
+                Jmat = cpsd
+            else:
+                Jmat = np.vstack((Jmat, cpsd))
             nfiles += 1
 
-        J /= nfiles
+        J = np.median(Jmat, axis=0)
 
         ## expected for resonator params
         eta = 2*res_pars[1]/res_pars[0]
@@ -287,8 +288,8 @@ def get_noise_template_3D(noise_files, fit_vals, nfft=-1):
         sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
         res_pos = np.argmin( np.abs(omega0-omega) )
         sphere_tf *= np.median(J[(res_pos-10):(res_pos+10)]/np.median(sphere_tf[(res_pos-10):(res_pos+10)]))
-        if(coord == 'z'):
-            sphere_tf *= 0.075
+        #if(coord == 'z'):
+        #    sphere_tf *= 0.075
 
         Jout = 1.0*J
         ## old signal to noise based version
@@ -874,6 +875,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
             drive_coord_idx = drive_dict[coord]
 
             curr_temp = 0
+            ntraces = 0
             for fname in curr_files:
 
                 cdat, attr, _ = get_data(fname)
@@ -891,12 +893,15 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
                     sidx = int(time_idx-window_length/2)
                     eidx = int(time_idx+window_length/2)
                     curr_temp += cdat[sidx:eidx,coord_idx]
+                    ntraces += 1
 
             curr_temp -= np.median(curr_temp[:int(window_length/4)]) #baseline sub
+            curr_temp /= ntraces
             pulse_dict[coord][resp_coord] = curr_temp
 
             if( resp_coord == coord):
                 norm_dict[coord] = np.max(np.abs(curr_temp))
+                norm_dict[coord + "_amp"] = impulse_amp
 
     ## now go back through, normalize, and fit
     ## first fit the diagonal elements
@@ -970,7 +975,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
 
         plt.subplots_adjust(hspace=0, wspace=0)
 
-    return pulse_dict, fit_dict, fit_vals
+    return pulse_dict, fit_dict, fit_vals, norm_dict
 
 def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], 
                   omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=False, 
@@ -1331,9 +1336,9 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
                 plt.plot(tvec, np.abs(corr_data*sfac) )
                 plt.plot(tvec[corr_idx], np.abs(corr_vals)*sfac, 'ro')
-                plt.xlim(1,2)
+                plt.xlim(40.5,41.5)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(0,2)
+                plt.ylim(0,350)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict
@@ -1846,3 +1851,197 @@ def get_edges_from_livetime_vec(live_vec, time_hours, dp_edges_orig):
     dead_period_edges.append([live_vec[-1], time_hours[-1]])
 
     return dead_period_edges
+
+
+def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
+                            drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], 
+                            ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0, figout=None):
+
+    coord_list = ['x', 'y', 'z']
+    nyquist =(attributes['Fsamp']/2)
+
+    ## coarse LP filter
+    fc_x = np.array([5, 70])/nyquist
+    b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
+    x_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx])
+    y_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+1])
+    z_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+2])
+
+    ## charge data
+    xdata = data[:,x_idx]
+    drive_data = data[:,drive_idx]
+
+    fc_drive = np.array([110, 112])/nyquist
+    fc_data = np.array([104, 119])/nyquist
+    b_data,a_data = sp.butter(3, fc_data, btype='bandpass')
+    b_drive,a_drive = sp.butter(3, fc_drive, btype='bandpass')
+    tvec = np.arange(len(xdata))/attributes['Fsamp']
+
+    nfine = 2**7
+    ncoarse = 2**14
+    #corr_dat = signed_correlation_with_drive(data, attributes, nperseg=nfine, recal_fac = 1/170)
+    drive_data_tilde = np.fft.rfft(drive_data)
+
+    drive_data = sp.filtfilt(b_drive,a_drive,drive_data)
+    xdata = sp.filtfilt(b_data,a_data,xdata)
+
+    window_fine=sp.windows.hamming(nfine)
+    window_coarse=sp.windows.hamming(ncoarse)
+
+    fine_points = range(int(nfine/2),len(xdata),nfine)
+    coarse_points = range(int(ncoarse/2),len(xdata),int(ncoarse/2))
+
+    corr_dat_fine = 1.0*np.zeros_like(fine_points)
+    corr_dat_coarse = 1.0*np.zeros_like(coarse_points)
+
+    for i, pt in enumerate(fine_points[1:-1]):
+        st, en = int(pt - nfine/2), int(pt + nfine/2)
+        corr_dat_fine[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_fine)
+
+    for i, pt in enumerate(coarse_points[1:-1]):
+        st, en = int(pt - ncoarse/2), int(pt + ncoarse/2)
+        corr_dat_coarse[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_coarse)
+
+
+    ## find the index of any charge changes
+    coarse_diff = np.diff(corr_dat_coarse)
+    coarse_diff[0] = 0 ## throw out edge effects
+    coarse_diff[-1] = 0
+
+    fine_diff = np.diff(corr_dat_fine)
+    coarse_diff[0:10] = 0 ## throw out edge effects
+    coarse_diff[-10:] = 0
+
+    if( xrange[0] < 0):
+        charge_change_idx = np.argmax(np.abs(coarse_diff))
+
+        cent = tvec[coarse_points][charge_change_idx]
+        #print("found coarse cent: ", cent)
+        ## now use the finely spaced data
+        fine_wind = (tvec[fine_points] > cent - 2*plot_wind_zoom) & (tvec[fine_points] < cent + 2*plot_wind_zoom)
+        charge_change_idx_fine = np.argmax(np.abs(fine_diff[fine_wind[:-1]]))
+        #print(charge_change_idx_fine)
+        cent += (tvec[fine_points][fine_wind][charge_change_idx_fine] - np.median(tvec[fine_points][fine_wind]))
+        #print("found fine cent: ", cent)
+
+        xmin = cent-plot_wind
+        xmax = cent+plot_wind
+        
+        xmin_zoom = cent-plot_wind_zoom
+        xmax_zoom = cent+plot_wind_zoom
+
+        charge_range = [xmin_zoom, xmax_zoom]
+
+    else:        
+        xmin = xrange[0] 
+        xmax = xrange[1] 
+
+        cent = np.mean(xrange)
+        xmin_zoom = cent - plot_wind_zoom
+        xmax_zoom = cent + plot_wind_zoom
+       
+    charge_change_idx = np.argmin(np.abs(tvec[coarse_points]-cent))
+
+    charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
+    charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
+    
+    if(not figout):
+        figout = plt.figure(figsize=(21,12))
+        
+    plt.figure(figout.number)
+    coord_dat = [x_position_data, y_position_data, z_position_data]
+    range_fac = [1,1,0.2]
+    xlims = [[0, tvec[-1]], [xmin, xmax], [xmin_zoom, xmax_zoom]]
+    coord_labs = ['X position [nm]', 'Y position [nm]', 'Z position [nm]', 'Charge [$e$]']
+    coord_labs_MeV = ['X amplitude [MeV]', 'Y amplitude [MeV]', 'Z amplitude [MeV]']
+    for i in range(3):
+
+        coord = coord_list[i]
+        curr_template = template_dict[coord][coord]
+        ## need to roll this template to start at zero or else we will have an offset
+        nsamp_before = np.where(np.abs(curr_template)>0)[0][0]
+        curr_template = np.roll(curr_template,-nsamp_before)
+        Npts = len(data[:,x_idx+i])
+        ## zero pad the current_template
+        curr_template = np.hstack((curr_template, np.zeros(Npts-len(curr_template))))
+        stilde = np.conjugate(np.fft.rfft(curr_template))
+        sfreq = np.fft.rfftfreq(len(curr_template),d=1/attributes['Fsamp'])
+        J = np.interp(sfreq, noise_dict[coord]['freq'], noise_dict[coord]['J'])
+        prefac = stilde/J
+        xtilde = np.fft.rfft(data[:,x_idx+i])
+        corr_data = np.fft.irfft(prefac * xtilde)
+
+        for col_idx in range(3):
+            sp_idx = 3*i + col_idx + 1
+            plt.subplot(4,3,sp_idx)
+            ax1 = plt.gca()
+            bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
+            ax1.plot(tvec, bp_data, color='k', rasterized=True, zorder=1)
+            opt_data = np.abs(corr_data*amp_cal_facs[1][i])
+            y1, y2 = -ylim_init*range_fac[i],ylim_init*range_fac[i]
+            plt.ylim(y1,y2)
+            ax2 = ax1.twinx()
+            ax2.plot(tvec, opt_data, 'orange', rasterized=True, zorder=0)
+            plt.ylim(-350,350)
+            ax1.set_zorder(100)
+            ax1.patch.set_facecolor("None")
+            for ax in [ax1, ax2]:
+                ax.set_xticklabels([])
+
+            ## find max around the pulse time in the X data
+            markstyle = ['bo', 'ko']
+            if(sp_idx==3):
+                max_vals = []
+                max_idxs = []
+                for ms,d in zip(markstyle, [opt_data, bp_data]):
+                    search_wind = 0.1 ## +/- 100 ms
+                    gpts = (tvec > cent -search_wind) & (tvec < cent+search_wind)
+                    vec_for_max = 1.0*np.abs(d)
+                    vec_for_max[~gpts] = 0  
+                    max_idx = np.argmax(vec_for_max)
+                    max_val = np.abs(d[max_idx])
+                    if(ms == 'bo'):
+                        plt.plot(tvec[max_idx], d[max_idx], ms, label = "%.1f MeV"%max_val)
+                    max_vals.append(np.abs(max_val))
+                    max_idxs.append(max_idx)
+
+                plt.legend(loc='upper right')
+
+
+            if( sp_idx % 3 == 0):
+                ax1.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [y1, y2], 'b:')
+
+            if(col_idx==0):
+                ax1.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+                ax1.set_ylabel(coord_labs[i])
+            elif(col_idx==1):
+                ax1.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4)
+            elif(col_idx==2):
+                ax2.set_ylabel(coord_labs_MeV[i])
+            
+            plt.xlim(xlims[col_idx])
+
+    for col_idx in range(3):
+        plt.subplot(4, 3, 10 + col_idx)
+        plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=True)
+        plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=True)
+        if(col_idx==0):
+            plt.ylabel(coord_labs[3])
+        plt.xlim(xlims[col_idx])
+
+        plt.ylim(charge_before-charge_wind, charge_after+charge_wind)
+        plt.grid(True)
+        y1, y2 = charge_before-charge_wind, charge_after+charge_wind
+        if(col_idx < 2):
+            plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+        plt.xlabel("Time [s]")
+
+        if( col_idx == 2):
+            plt.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [y1, y2], 'b:')
+
+
+    plt.subplots_adjust( hspace=0.0, left=0.04, right=0.95, top=0.95, bottom=0.05)
+    #plt.tight_layout()
+
+    step_params = [max_vals[0], max_vals[1], charge_after-charge_before]
+    return step_params
