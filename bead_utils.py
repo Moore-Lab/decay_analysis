@@ -1855,7 +1855,7 @@ def get_edges_from_livetime_vec(live_vec, time_hours, dp_edges_orig):
 
 def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
                             drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], 
-                            ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0, figout=None):
+                            ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0, figout=None, filament_col=12):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -1954,6 +1954,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     xlims = [[0, tvec[-1]], [xmin, xmax], [xmin_zoom, xmax_zoom]]
     coord_labs = ['X position [nm]', 'Y position [nm]', 'Z position [nm]', 'Charge [$e$]']
     coord_labs_MeV = ['X amplitude [MeV]', 'Y amplitude [MeV]', 'Z amplitude [MeV]']
+
+    fil_vec = (data[:,filament_col]>0.5)
+    fil_times = tvec[fil_vec]
+
     for i in range(3):
 
         coord = coord_list[i]
@@ -2018,6 +2022,11 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 ax1.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4)
             elif(col_idx==2):
                 ax2.set_ylabel(coord_labs_MeV[i])
+
+            if(len(fil_times)>0):
+                #print("filling filament")
+                ff=np.ones_like(fil_times)
+                ax1.fill_between(fil_times, y1*ff, y1 + ff*(y2-y1), color='red', alpha=0.2)
             
             plt.xlim(xlims[col_idx])
 
@@ -2038,6 +2047,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
         if( col_idx == 2):
             plt.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [y1, y2], 'b:')
+
+        if(len(fil_times)>0):
+            plt.fill_between(fil_times, y1*ff, y1 + ff*(y2-y1), color='red', alpha=0.2)
 
 
     plt.subplots_adjust( hspace=0.0, left=0.04, right=0.95, top=0.95, bottom=0.05)
