@@ -1854,7 +1854,7 @@ def get_edges_from_livetime_vec(live_vec, time_hours, dp_edges_orig):
 
 
 def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
-                            drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], 
+                            drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], do_lowpass=False, 
                             ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0, figout=None, filament_col=12):
 
     coord_list = ['x', 'y', 'z']
@@ -1866,6 +1866,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     x_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx])
     y_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+1])
     z_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+2])
+
+    b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
+    lp_recal_fac = 2.43 ## need to do a detailed study with calibration data -- this is meant to correct
+                        ## for amplitude loss due to the low pass filter
 
     ## charge data
     xdata = data[:,x_idx]
@@ -1957,7 +1961,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
     fil_vec = (data[:,filament_col]>0.5)
     fil_times = tvec[fil_vec]
-
+    ax2y1, ax2y2 = -350, 350
+    bsfac = 10
+    ax_dict = {}
     for i in range(3):
 
         coord = coord_list[i]
@@ -1974,6 +1980,12 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
         prefac = stilde/J
         xtilde = np.fft.rfft(data[:,x_idx+i])
         corr_data = np.fft.irfft(prefac * xtilde)
+        ## low pass if desired
+        if(do_lowpass):
+            corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data**2))
+            gpts = corr_data > 0
+            corr_data -= np.median(corr_data[gpts])
+            corr_data *= lp_recal_fac
 
         for col_idx in range(3):
             sp_idx = 3*i + col_idx + 1
@@ -1987,10 +1999,12 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             ax2 = ax1.twinx()
             ax2.plot(tvec, opt_data, 'orange', rasterized=True, zorder=0)
             plt.ylim(-350,350)
-            ax1.set_zorder(100)
-            ax1.patch.set_facecolor("None")
+            #ax1.set_zorder(100)
+            #ax1.patch.set_facecolor("None")
             for ax in [ax1, ax2]:
                 ax.set_xticklabels([])
+            ax_dict[sp_idx] = [ax1, ax2]
+            ax_dict[(sp_idx,1)] = [y1, y2]
 
             ## find max around the pulse time in the X data
             markstyle = ['bo', 'ko']
@@ -1999,7 +2013,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 max_idxs = []
                 for ms,d in zip(markstyle, [opt_data, bp_data]):
                     search_wind = 0.1 ## +/- 100 ms
-                    gpts = (tvec > cent -search_wind) & (tvec < cent+search_wind)
+                    gpts = (tvec > cent -search_wind) & (tvec < cent+search_wind) & (d>0)
                     vec_for_max = 1.0*np.abs(d)
                     vec_for_max[~gpts] = 0  
                     max_idx = np.argmax(vec_for_max)
@@ -2013,20 +2027,20 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
 
             if( sp_idx % 3 == 0):
-                ax1.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [y1, y2], 'b:')
+                ax1.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [bsfac*y1, bsfac*y2], 'b:')
 
             if(col_idx==0):
-                ax1.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
+                ax1.fill_between([charge_range[0], charge_range[1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.4, zorder=100)
                 ax1.set_ylabel(coord_labs[i])
             elif(col_idx==1):
-                ax1.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4)
+                ax1.fill_between([charge_range[0], charge_range[1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.4)
             elif(col_idx==2):
                 ax2.set_ylabel(coord_labs_MeV[i])
 
             if(len(fil_times)>0):
                 #print("filling filament")
                 ff=np.ones_like(fil_times)
-                ax1.fill_between(fil_times, y1*ff, y1 + ff*(y2-y1), color='red', alpha=0.2)
+                ax1.fill_between(fil_times, bsfac*y1*ff, y1 + bsfac*ff*(y2-y1), color='red', alpha=0.2)
             
             plt.xlim(xlims[col_idx])
 
@@ -2051,6 +2065,14 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
         if(len(fil_times)>0):
             plt.fill_between(fil_times, y1*ff, y1 + ff*(y2-y1), color='red', alpha=0.2)
 
+    # zoom out if needed
+    if(max_vals[0] > 350):
+        rs = max_vals[0]/350 * 1.5
+        for i in range(3):
+            for col_idx in range(3):
+                sp_idx = 3*i + col_idx + 1
+                ax_dict[sp_idx][0].set_ylim(ax_dict[(sp_idx,1)][0]*rs, ax_dict[(sp_idx,1)][1]*rs) 
+                ax_dict[sp_idx][1].set_ylim(ax2y1*rs, ax2y2*rs) 
 
     plt.subplots_adjust( hspace=0.0, left=0.04, right=0.95, top=0.95, bottom=0.05)
     #plt.tight_layout()
