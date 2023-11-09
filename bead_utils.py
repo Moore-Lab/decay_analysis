@@ -477,6 +477,16 @@ def get_lamp_and_filament(dat, npts):
     
     return lamp_dat, fil_dat
 
+def fill_dps(dead_period_edges, color='blue', lab="Dead time"):
+    ## define plotting function for dead times
+    yy = plt.ylim()
+    for i,dp in enumerate(dead_period_edges):
+        if(i==0 and len(lab)>0):
+            plt.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2, label=lab)
+        else:
+            plt.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2)  
+    plt.ylim(yy)
+
 def labview_time_to_datetime(lt):
     ### Convert a labview timestamp (i.e. time since 1904) to a 
     ### more useful format (pytho datetime object)
@@ -1017,6 +1027,7 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
             wind=300
             for ic in impulse_cent:
                 current_search = corr_data[(ic-wind):(ic+wind)]
+                if(len(current_search)==0): continue
                 corr_vals.append(np.max(current_search))
                 corr_idx.append(ic-wind+np.argmax(current_search))
                 idx_offsets.append( np.argmax(current_search) - wind)
