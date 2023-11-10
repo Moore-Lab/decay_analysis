@@ -1273,7 +1273,7 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 
 def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
-                 cal_fac=1, drive_idx=drive_idx, do_lp_filt=False,
+                 cal_fac=1, drive_idx=drive_idx, do_lp_filt=False, wind=10, 
                  subtract_sine_step=False, make_plots=False, coord='x', resp_coord=''):
     ## optimally filter including noise spectrum
     filt_dict = {}
@@ -1311,7 +1311,7 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
         filt_dict[impulse_amp] = []
         off_key = str(impulse_amp) + "_offsets"
         filt_dict[off_key] = []
-        for fname in curr_files:
+        for fnidx, fname in enumerate(curr_files):
             #print("Working on file: %s"%fname)
             cdat, attr, _ = get_data(fname)
             fs = attr['Fsamp']
@@ -1333,32 +1333,31 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             corr_vals = []
             corr_idx = []
             idx_offsets = []
-            wind=10
             for ic in impulse_cent:
                 icd = int(ic)
-                sidx, eidx = icd-wind, icd+wind
+                sidx, eidx = icd-wind, icd+wind-1
                 if(sidx < 0): sidx = 0
                 if(eidx  >= len(corr_data)): eidx = len(corr_data)-1
-                current_search = np.abs(corr_data[sidx:eidx])
+                current_search = corr_data[sidx:eidx]
                 corr_vals.append(np.max(current_search))
                 corr_idx.append(sidx+np.argmax(current_search))
                 idx_offsets.append( np.argmax(current_search) - wind)
             filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
             filt_dict[off_key] = np.hstack((filt_dict[off_key], idx_offsets))
 
-            if(make_plots):
+            if(make_plots and fnidx==0):
                 tvec = np.arange(Npts)/attr['Fsamp']
                 fstr = str.split(fname,'/')[-1]
                 sfac = cal_fac
                 plt.figure(figsize=(15,3))
                 nfac = 1/np.max(cdat[:,drive_dict[coord]])
-                plt.plot(tvec, cdat[:,drive_dict[coord]]*nfac)
+                plt.plot(tvec, cdat[:,drive_dict[coord]]*nfac * 250)
                 #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
-                plt.plot(tvec, np.abs(corr_data*sfac) )
-                plt.plot(tvec[corr_idx], np.abs(corr_vals)*sfac, 'ro')
-                plt.xlim(40.5,41.5)
+                plt.plot(tvec, corr_data*sfac )
+                plt.plot(tvec[corr_idx], np.array(corr_vals)*sfac, 'ro')
+                plt.xlim(0, 10)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(0,350)
+                plt.ylim(-50,np.median(np.abs(corr_vals)*sfac)*2)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict
