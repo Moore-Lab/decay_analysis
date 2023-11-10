@@ -1185,9 +1185,9 @@ def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False):
                 if(make_plots):
                     plt.figure(figsize=(12,5))
                     plt.plot(xdata_drive)
-                    plt.plot(best_scale*xdrive_inv)
+                    plt.plot(best_scale*xdrive_inv*10)
                     #plt.plot(xdata-np.median(xdata))
-                    plt.xlim(0,2e5)
+                    plt.xlim(0,5e4)
                     plt.show()
                 
                 return best_scale*xdrive_inv
@@ -1274,7 +1274,7 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
                  cal_fac=1, drive_idx=drive_idx, do_lp_filt=False, wind=10, 
-                 subtract_sine_step=False, make_plots=False, coord='x', resp_coord=''):
+                 subtract_sine_step=False, make_plots=False, coord='x', resp_coord='', template_fit_vals={}):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
@@ -1315,15 +1315,28 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             #print("Working on file: %s"%fname)
             cdat, attr, _ = get_data(fname)
             fs = attr['Fsamp']
+            nyquist = fs/2
             xdata = cdat[:,coords_dict[resp_coord]]
             
+            if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
+                omega0, gamma = template_fit_vals[coord][coord][1], template_fit_vals[coord][coord][2]
+                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=True) 
+
+                bf, af = sp.butter(3, [106/nyquist, 116/nyquist], btype='bandpass')
+                plt.figure()
+                tvec = np.arange(Npts)/attr['Fsamp']
+                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                xdata -= step_impulse
+                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                plt.xlim(0,10)
+                plt.show()
+
             xtilde = np.fft.rfft(xdata)
             corr_data = np.fft.irfft(prefac * xtilde) #[::-1] ## by far most efficient to use fft for this time offset
                                                             ## note we have to reverse the vector because of the def'n
                                                             ## of irfft (we could use fft but not with rfft variants)
 
             if(do_lp_filt):
-                nyquist = fs/2
                 b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
                 corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data**2))
 
