@@ -1155,27 +1155,31 @@ def get_impulse_cents(cdat, fs, time_offset=0, pulse_data=True, drive_freq = 120
 
     return impulse_cent
 
-def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False):
+def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False, drive_idx=drive_idx):
                 xdata = cdat[:,x_idx]
+
+                drive_dat = cdat[:,drive_idx]
+                f, p = sp.welch(drive_dat, fs, nperseg=2**int(np.log(len(drive_dat))))
+                gpts = (f > 65) & (f < 500) ## search only reasonable range for drive, skip 60 Hz
+                pmax = 1.0*p
+                pmax[~gpts] = 0
+                drive_freq = f[np.argmax(pmax)]
+                #print("Drive frequency is: %.2f Hz"%drive_freq)
+
                 ## get the drive frequency (normalized template)
                 ddata = cdat[:,drive_idx]
                 ddata -= np.mean(ddata)
-                bpf = [0.5/(fs/2), 1000/(fs/2)]
-                b, a = sp.butter(1, bpf, btype='bandpass')
-                ddata = sp.filtfilt(b, a, ddata)
                 ddata = ddata/np.max(ddata)
-                
                 ddata_tilde = np.fft.rfft(ddata)
-                drive_psd = np.abs(ddata_tilde)**2
-                drive_freq_vec = np.fft.rfftfreq(len(ddata), d=1/fs)
-                drive_freq = drive_freq_vec[np.argmax(drive_psd)]
 
                 drive_wind = 2 ## window around drive frequency to keep
                 bpf = [5/(fs/2), 200/(fs/2)]
                 b, a = sp.butter(1, bpf, btype='bandpass')
                 xdata_drive = sp.filtfilt(b,a,xdata)
 
-                omega_vec = 2*np.pi*drive_freq_vec
+                fvec = np.fft.rfftfreq(len(xdata), d=1/fs)
+
+                omega_vec = 2*np.pi*fvec
                 xtilde = ddata_tilde/(omega0**2 - omega_vec**2 + 1j*gamma*omega_vec)
                 xdrive_inv = np.fft.irfft(xtilde)
                 scale_func = lambda xdata, A: A*xdrive_inv
@@ -1184,10 +1188,11 @@ def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False):
 
                 if(make_plots):
                     plt.figure(figsize=(12,5))
-                    plt.plot(xdata_drive)
-                    plt.plot(best_scale*xdrive_inv*10)
+                    plt.plot(xdata_drive, label="Data")
+                    plt.plot(best_scale*xdrive_inv, label="Predicted impulse")
                     #plt.plot(xdata-np.median(xdata))
-                    plt.xlim(0,5e4)
+                    plt.xlim(9000,15000)
+                    plt.legend()
                     plt.show()
                 
                 return best_scale*xdrive_inv
@@ -1320,16 +1325,16 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             
             if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
                 omega0, gamma = template_fit_vals[coord][coord][1], template_fit_vals[coord][coord][2]
-                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=True) 
+                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=False, drive_idx=drive_idx) 
 
-                bf, af = sp.butter(3, [106/nyquist, 116/nyquist], btype='bandpass')
-                plt.figure()
+                bf, af = sp.butter(3, [5/nyquist, 200/nyquist], btype='bandpass')
                 tvec = np.arange(Npts)/attr['Fsamp']
-                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                #plt.figure()
+                #plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
                 xdata -= step_impulse
-                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
-                plt.xlim(0,10)
-                plt.show()
+                #plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                #plt.xlim(0,10)
+                #plt.show()
 
             xtilde = np.fft.rfft(xdata)
             corr_data = np.fft.irfft(prefac * xtilde) #[::-1] ## by far most efficient to use fft for this time offset
