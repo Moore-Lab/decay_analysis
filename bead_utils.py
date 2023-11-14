@@ -1325,16 +1325,16 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             
             if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
                 omega0, gamma = template_fit_vals[coord][coord][1], template_fit_vals[coord][coord][2]
-                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=False, drive_idx=drive_idx) 
+                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=True, drive_idx=drive_idx) 
 
                 bf, af = sp.butter(3, [5/nyquist, 200/nyquist], btype='bandpass')
                 tvec = np.arange(Npts)/attr['Fsamp']
-                #plt.figure()
-                #plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                plt.figure()
+                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
                 xdata -= step_impulse
-                #plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
-                #plt.xlim(0,10)
-                #plt.show()
+                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                plt.xlim(0,10)
+                plt.show()
 
             xtilde = np.fft.rfft(xdata)
             corr_data = np.fft.irfft(prefac * xtilde) #[::-1] ## by far most efficient to use fft for this time offset
@@ -2117,12 +2117,16 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     step_params = [max_vals[0], max_vals[1], charge_after-charge_before]
     return step_params
 
-
+def stepped_sine_response(A, B, drive, omega0, gamma, omega_vec, Nvec):
+    svec_tilde = np.fft.rfft( (A + (B-A)*Nvec)*drive )
+    xtilde = svec_tilde/(omega0**2 - omega_vec**2 + 1j*gamma*omega_vec)
+    xdrive_inv = np.fft.irfft(xtilde)
+    return xdrive_inv
 
 def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
                             drive_idx=drive_idx, plot_wind=5, charge_wind=10, charge_range=[-1,-1], do_lowpass=False, 
                             ylim_init=[-10,50], ylim2_scale=6, plot_wind_zoom=0.3, filt_time_offset = 0, figout=None, 
-                            filament_col=12, toffset=0, tmax=-1):
+                            filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0]):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2135,8 +2139,6 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
     z_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+2])
 
     b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
-    lp_recal_fac = 2.43 ## need to do a detailed study with calibration data -- this is meant to correct
-                        ## for amplitude loss due to the low pass filter
 
     ## charge data
     xdata = data[:,x_idx]
@@ -2248,12 +2250,119 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
         prefac = stilde/J
         xtilde = np.fft.rfft(data[:,x_idx+i])
         corr_data = np.fft.irfft(prefac * xtilde)
+
+        ## subtract sine step if desired
+        if(subtract_sine_step):
+            if(i==0): ## use x signal for start time
+                filt_data = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data**2)) #lowpass to get best estimate of decay time
+                search_wind = 0.1 ## +/- 100 ms
+                gpts = (tvec > cent-search_wind) & (tvec < cent+search_wind) & (filt_data>0)
+                vec_for_max = 1.0*np.abs(filt_data)
+                vec_for_max[~gpts] = 0  
+                max_idx_full_waveform = np.argmax(vec_for_max)
+
+                ## fit the drive times two scalings
+                ddata = data[:,drive_idx]
+                ddata -= np.mean(ddata)
+                ddata = ddata/np.max(ddata)
+                ddata_tilde = np.fft.rfft(ddata)
+                fvec = np.fft.rfftfreq(len(ddata), d=1/attributes['Fsamp'])
+                gpts = (fvec > 65) & (fvec < 500) ## search only reasonable range for drive, skip 60 Hz
+                pmax = 1.0*np.abs(ddata_tilde)**2
+                pmax[~gpts] = 0
+                drive_idx = np.argmax(pmax)
+                svec_tilde = np.zeros_like(ddata_tilde)
+                freq_wind = 1000 ## filter around drive peak
+                svec_tilde[(drive_idx-freq_wind):(drive_idx+freq_wind)] = ddata_tilde[(drive_idx-freq_wind):(drive_idx+freq_wind)]
+                svec = np.fft.irfft(svec_tilde)
+
+                ## now for the response data
+                Npts = len(ddata)
+                data_before_step = data[:max_idx_full_waveform,x_idx]
+                data_after_step = data[max_idx_full_waveform:,x_idx]
+                pts_before, pts_after = 2**int(np.log(len(data_before_step))), 2**int(np.log(len(data_after_step)))
+                ft = np.fft.rfft(data_before_step[-pts_before:])
+                ft_freq_before = np.fft.rfftfreq(pts_before, d=1/attributes['Fsamp'])
+                fidx_before = int(np.round(np.interp(fvec[drive_idx], ft_freq_before, np.arange(len(ft_freq_before)))))
+                sign = np.sign( np.real(ft[fidx_before]/svec_tilde[drive_idx]) )
+                amp_before = sign*np.abs(ft)[fidx_before]
+
+                ft = np.fft.rfft(data_after_step[:pts_after])
+                ft_freq_after = np.fft.rfftfreq(pts_after, d=1/attributes['Fsamp'])
+                fidx_after = int(np.round(np.interp(fvec[drive_idx], ft_freq_after, np.arange(len(ft_freq_after)))))
+                sign = np.sign( np.real(ft[fidx_after]/svec_tilde[drive_idx]) )
+                amp_after = sign*np.abs(ft)[fidx_after]
+
+                # plt.figure()
+                # plt.semilogy(ft_freq_before, np.abs(np.fft.rfft(data_before_step[-pts_before:])))
+                # plt.plot(ft_freq_before[fidx_before], amp_before, 'ro')
+                # plt.xlim(0,200)
+
+                # plt.semilogy(ft_freq_after, np.abs(np.fft.rfft(data_after_step[:pts_after])))
+                # plt.plot(ft_freq_after[fidx_after], amp_after, 'ro')
+                # plt.xlim(0,200)
+
+                omega0, gamma = res_pars[0], res_pars[1]
+                omega_vec = 2*np.pi*fvec
+                Nvec = np.arange(len(ddata)) > max_idx_full_waveform
+        
+                fc_wide = np.array([5, 150])/nyquist
+                b_wide,a_wide = sp.butter(3, fc_wide, btype='bandpass')
+
+                xdata_drivefilt = sp.filtfilt(b_data, a_data, data[:,x_idx])
+                xdata_widefilt = sp.filtfilt(b_wide, a_wide, data[:,x_idx])
+
+                drive_resp = stepped_sine_response(amp_before, amp_after, svec, omega0, gamma, omega_vec, Nvec)
+                sfac = np.sum(drive_resp * xdata_drivefilt)/np.sum(drive_resp**2)
+
+                cal_fac = 1/amp_cal_facs[0][coord] * 1e9 ## in nm                
+
+                plt.figure(figsize=(16,4))
+
+                plt.subplot(1,3,1)
+                plt.plot(tvec, xdata_widefilt*cal_fac, 'k', label='Minimal filtering')
+                plt.plot(tvec, xdata_drivefilt*cal_fac, 'r', label='Filt. to drive freq.')
+                plt.plot(tvec, drive_resp*sfac*cal_fac, 'b', label='Pred. response')
+                plt.xlim(16.3,16.7)
+                plt.ylim(-20,30)
+                plt.xlabel("Time (s)")
+                plt.ylabel("X position (nm)")
+                plt.legend(loc='upper right', fontsize=9)
+
+                before_sub = xdata_widefilt*cal_fac
+                after_sub = (xdata_widefilt-drive_resp*sfac)*cal_fac
+
+                plt.subplot(1,3,2)
+                plt.plot(tvec, before_sub, 'k', label='Before sub.')
+                plt.plot(tvec, after_sub, 'orange', label='After sub.')
+                plt.xlim(16.3,16.7)
+                plt.ylim(-20,30)
+                plt.xlabel("Time (s)")
+                plt.ylabel("X position (nm)")
+                plt.legend(loc='upper right', fontsize=9)
+
+                plt.subplot(1,3,3)
+                freqs, psd_before = sp.welch(before_sub, fs=attributes['Fsamp'], nperseg=2**14)
+                freqs, psd_after = sp.welch(after_sub, fs=attributes['Fsamp'], nperseg=2**14)
+                plt.plot(freqs, psd_before, 'k', label='Before sub.')
+                plt.plot(freqs, psd_after, 'orange', label='After sub.')
+                plt.xlim(0,150)
+                plt.ylim(0,2)
+                plt.xlabel("Frequency (Hz)")
+                plt.ylabel("PSD (nm$^2$/Hz)")
+                plt.legend(loc='upper right', fontsize=9)
+
+                #plt.show()
+
+                ## back to orig fig
+                plt.figure(figout.number)
+
+
         ## low pass if desired
         if(do_lowpass):
             corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data**2))
             gpts = corr_data > 0
             corr_data -= np.percentile(corr_data[gpts],1)
-            corr_data *= lp_recal_fac
 
         for col_idx in range(2):
             if(col_idx == 0):
