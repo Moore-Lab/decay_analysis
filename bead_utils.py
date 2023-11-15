@@ -2517,7 +2517,7 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
             buff=5
             t = tvec[coarse_points][1:(charge_change_idx+buff)]
             plt.plot(t, np.ones_like(t)*integer_charge_before, 'k:', zorder=5)
-            text = plt.text(t[-1]-0.5, integer_charge_before+1.5, "%d$e$"%integer_charge_before, ha='left', va='top', fontsize=10, zorder=4)
+            text = plt.text(t[-1]+0.5, integer_charge_before, "%d$e$"%integer_charge_before, ha='left', va='top', fontsize=10, zorder=4)
             text.set_bbox(dict(facecolor='white', edgecolor='none', pad=0))
             t = tvec[coarse_points][(charge_change_idx-buff):]
             plt.plot(t, np.ones_like(t)*integer_charge_after, 'k:', zorder=5)
