@@ -2135,7 +2135,8 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
                             drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], do_lowpass=False, 
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
-                            ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False):
+                            ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False,
+                            plot_wind_offset=0):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2220,8 +2221,8 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
         xmax = xrange[1] 
 
         cent = np.mean(xrange)
-        xmin_zoom = cent - plot_wind_zoom
-        xmax_zoom = cent + plot_wind_zoom
+        xmin_zoom = cent - plot_wind_zoom 
+        xmax_zoom = cent + plot_wind_zoom 
        
     charge_change_idx = np.argmin(np.abs(tvec[coarse_points]-cent))
 
@@ -2470,7 +2471,7 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
                 ax1.plot([tvec[max_idxs[0]], tvec[max_idxs[0]]], [yy[0], yy[1]], 'b:')
 
             if(col_idx == 0):
-                ax1.fill_between([xlims[col_idx+1][0], xlims[col_idx+1][1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.2, zorder=0)
+                ax1.fill_between([xlims[col_idx+1][0]+plot_wind_offset, xlims[col_idx+1][1]+plot_wind_offset], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.2, zorder=0)
                 ax1.set_ylabel(coord_labs_in[i])
                 if(i==1):
                     ax1.set_yticks([0,200,400])
@@ -2529,7 +2530,7 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
         plt.grid(True)
         y1, y2 = charge_before-charge_wind, charge_after+charge_wind
         if(col_idx ==0 ):
-            plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.2, zorder=0)
+            plt.fill_between([charge_range[0]+plot_wind_offset, charge_range[1]+plot_wind_offset], [y1, y1], [y2, y2], color='blue', alpha=0.2, zorder=0)
         
         if(col_idx==1):
             plt.xlabel("Time [s]", fontsize=9)
