@@ -13,6 +13,8 @@ import matplotlib.dates as mdates
 import numexpr as ne
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Rectangle
+import pickle
+
 
 ## columns in the data files
 x_idx, y_idx, z_idx = 0, 1, 2
@@ -2136,10 +2138,12 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False,
-                            plot_wind_offset=0, paper_plot=False, rasterized=False):
+                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
+
+    curr_step_params = {}
 
     ## coarse LP filter
     fc_x = np.array([5, 70])/nyquist
@@ -2402,7 +2406,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             else:
                 corr_data = np.sqrt(sp.filtfilt(b_lpz, a_lpz, corr_data**2))
             gpts = (corr_data > 0)
-            corr_data -= np.percentile(corr_data[gpts],1)
+            #corr_data -= np.percentile(corr_data[gpts],1)
 
         for col_idx in range(2):
             if(paper_plot):
@@ -2464,7 +2468,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
             ## find max around the pulse time in the X data
             markstyle = ['bo', 'ko']
-            if(sp_idx==1):
+            if(i==0 and col_idx==1):
                 max_vals = []
                 max_idxs = []
                 for ms,d in zip(markstyle, [opt_data, bp_data]):
@@ -2474,13 +2478,29 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     vec_for_max[~gpts] = 0  
                     max_idx = np.argmax(vec_for_max)
                     max_val = np.abs(d[max_idx])
-                    #if(ms == 'bo'):
-                    #    plt.plot(tvec[max_idx], d[max_idx], ms, label = "%.1f MeV"%max_val)
                     max_vals.append(np.abs(max_val))
                     max_idxs.append(max_idx)
 
-                #plt.legend(loc='upper right')
+                if(plot_peak):
+                    vec_for_max = 1.0*np.abs(opt_data)
+                    plt.sca(ax1)
+                    curr_max_val = vec_for_max[max_idxs[0]]
+                    plt.plot(tvec[max_idxs[0]], curr_max_val, 'bo', label = "%.1f MeV"%curr_max_val)     
+                    plt.legend(loc='upper right')
+            
+            elif(i > 0 and col_idx==1):
+                search_buff=1
+                vec_for_max = 1.0*np.abs(opt_data)
+                vec_for_max[:(max_idxs[0]-search_buff)] = 0  
+                vec_for_max[(max_idxs[0]+search_buff):] = 0  
+                curr_max_val = np.max(vec_for_max)
+                if(plot_peak):
+                    plt.sca(ax1)
+                    plt.plot(tvec[max_idxs[0]], curr_max_val, 'bo', label = "%.1f MeV"%curr_max_val)                
+                    plt.legend(loc='upper right')
 
+            if(col_idx == 1):
+                curr_step_params[coord + "_amp"] = curr_max_val
 
             if( col_idx == 1):
                 yy = ax1.get_ylim()
@@ -2537,7 +2557,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
             integer_charge_before = np.round(charge_before)
             integer_charge_after = np.round(charge_after)
-            print(integer_charge_after, integer_charge_before)
+            #print(integer_charge_after, integer_charge_before)
             buff=5
             t = tvec[coarse_points][1:(charge_change_idx+buff)]
             plt.plot(t, np.ones_like(t)*integer_charge_before, 'k:', zorder=5)
@@ -2573,10 +2593,12 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             plt.fill_between(fil_times, y1*ff, y1 + ff*(y2-y1), color='red', alpha=0.2)
     #plt.tight_layout()
 
+    curr_step_params['charge_before'] = charge_before
+    curr_step_params['charge_after'] = charge_after
+
     figout.align_labels()
     plt.figure(figout.number)
     plt.subplots_adjust( hspace=0.0, left=0, right=0.92, top=0.95, bottom=0.05)
 
-    step_params = [max_vals[0], max_vals[1], charge_after-charge_before]
-    return step_params
+    return curr_step_params
 
