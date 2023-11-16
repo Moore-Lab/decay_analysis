@@ -2137,8 +2137,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], do_lowpass=False, 
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
-                            ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False,
-                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False):
+                            ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, subplots_dir="",
+                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fname_idx=0):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2353,14 +2353,14 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 cal_fac = 1/amp_cal_facs[0][coord] * 1e9 ## in nm                
 
                 if(do_subtract_plots):
-                    plt.figure(figsize=(16,4))
+                    subfig=plt.figure(figsize=(16,4))
 
                     plt.subplot(1,3,1)
                     plt.plot(tvec, xdata_widefilt*cal_fac, 'k', label='Minimal filtering')
                     plt.plot(tvec, xdata_drivefilt*cal_fac, 'r', label='Filt. to drive freq.')
                     plt.plot(tvec, drive_resp*sfac*cal_fac, 'b', label='Pred. response')
-                    plt.xlim(16.3,16.7)
-                    plt.ylim(-20,30)
+                    plt.xlim(xmin_zoom, xmax_zoom)
+                    plt.ylim(-30,30)
                     plt.xlabel("Time (s)")
                     plt.ylabel("X position (nm)")
                     plt.legend(loc='upper right', fontsize=9)
@@ -2371,8 +2371,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     plt.subplot(1,3,2)
                     plt.plot(tvec, before_sub, 'k', label='Before sub.')
                     plt.plot(tvec, after_sub, 'orange', label='After sub.')
-                    plt.xlim(16.3,16.7)
-                    plt.ylim(-20,30)
+                    plt.xlim(xmin_zoom, xmax_zoom)
+                    plt.ylim(-30,30)
                     plt.xlabel("Time (s)")
                     plt.ylabel("X position (nm)")
                     plt.legend(loc='upper right', fontsize=9)
@@ -2387,8 +2387,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     plt.xlabel("Frequency (Hz)")
                     plt.ylabel("PSD (nm$^2$/Hz)")
                     plt.legend(loc='upper right', fontsize=9)
-                    #plt.savefig("sine_subtraction.pdf", bbox_inches='tight')
+                    if(len(subplots_dir)>0):
+                        plt.savefig(subplots_dir + "/sine_subtraction_%d.pdf"%fname_idx, bbox_inches='tight')
                     #plt.show()
+                    plt.close(subfig)
 
                     ## back to orig fig
                     plt.figure(figout.number)
