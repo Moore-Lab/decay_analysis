@@ -2136,7 +2136,7 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False,
-                            plot_wind_offset=0):
+                            plot_wind_offset=0, paper_plot=False):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2405,17 +2405,26 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
             corr_data -= np.percentile(corr_data[gpts],1)
 
         for col_idx in range(2):
-            if(col_idx == 0):
-                sp_idx = i + 1
-                plt.subplot(4,1,sp_idx)
-                ax1 = plt.gca()
+            if(paper_plot):
+                if(col_idx == 0):
+                    sp_idx = i + 1
+                    plt.subplot(4,1,sp_idx)
+                    ax1 = plt.gca()
+                else:
+                    ax1 = inset_axes(ax, width="100%", height="100%", bbox_to_anchor=(.45, .5, .57, .56), bbox_transform=ax.transAxes)
+                    ax1.tick_params(axis='x', pad=0, labelsize=9)
+                    ax1.tick_params(axis='y', pad=0, labelsize=9)
+                    ax1.xaxis.labelpad = 0
+                    ax1.yaxis.labelpad = 0
+                    ax1.set_ylabel(coord_labs_in[i], fontsize=9)
             else:
-                ax1 = inset_axes(ax, width="100%", height="100%", bbox_to_anchor=(.45, .5, .57, .56), bbox_transform=ax.transAxes)
-                ax1.tick_params(axis='x', pad=0, labelsize=9)
-                ax1.tick_params(axis='y', pad=0, labelsize=9)
-                ax1.xaxis.labelpad = 0
-                ax1.yaxis.labelpad = 0
-                ax1.set_ylabel(coord_labs_in[i], fontsize=9)
+                    sp_idx = 2*i + col_idx + 1
+                    plt.subplot(4,2,sp_idx)
+                    ax1 = plt.gca()
+                    ax1.tick_params(axis='x', pad=0)
+                    ax1.tick_params(axis='y', pad=0)
+                    ax1.xaxis.labelpad = 0
+                    ax1.yaxis.labelpad = 0
 
             bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
             #ax1.plot(tvec, bp_data, color='k', rasterized=True, zorder=1)
@@ -2432,11 +2441,18 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
             if(col_idx==1):
                 ax2 = ax1.twinx()
                 ax2.plot(tvec, bp_data, color='orange', zorder=1)
-                ax2.tick_params(axis='x', pad=0, labelsize=9)
-                ax2.tick_params(axis='y', pad=0, labelsize=9)
-                ax2.xaxis.labelpad = 0
-                ax2.yaxis.labelpad = 4
-                ax2.set_ylabel(coord_labs_pos[i], fontsize=9)
+                if(paper_plot):
+                    ax2.tick_params(axis='x', pad=0, labelsize=9)
+                    ax2.tick_params(axis='y', pad=0, labelsize=9)
+                    ax2.xaxis.labelpad = 0
+                    ax2.yaxis.labelpad = 4
+                    ax2.set_ylabel(coord_labs_pos[i], fontsize=9)
+                else:
+                    ax2.tick_params(axis='x', pad=0)
+                    ax2.tick_params(axis='y', pad=4)
+                    ax2.xaxis.labelpad = 0
+                    ax2.yaxis.labelpad = 2
+                    ax2.set_ylabel(coord_labs_pos[i])                    
 
                 ax1.set_ylim(ylim_nm[0]/ylim_nm[1] * ax2y2, ax2y2)
                 yy = ax2.get_ylim()
@@ -2467,11 +2483,11 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
 
 
             if( col_idx == 1):
-                yy = plt.ylim()
+                yy = ax1.get_ylim()
                 ax1.plot([tvec[max_idxs[0]], tvec[max_idxs[0]]], [yy[0], yy[1]], 'b:')
 
             if(col_idx == 0):
-                ax1.fill_between([xlims[col_idx+1][0]+plot_wind_offset, xlims[col_idx+1][1]+plot_wind_offset], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.2, zorder=0)
+                ax1.fill_between([xlims[col_idx+1][0]+plot_wind_offset, xlims[col_idx+1][1]+plot_wind_offset], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.1, zorder=0)
                 ax1.set_ylabel(coord_labs_in[i])
                 if(i==1):
                     ax1.set_yticks([0,200,400])
@@ -2489,21 +2505,29 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
 
     for col_idx in range(2):
 
-        if(col_idx == 0):
-            plt.subplot(4, 1, 4)
-            ax1 = plt.gca()
-            outer_ax = ax1
-        else:
-            ax1 = inset_axes(ax1, width="100%", height="100%", bbox_to_anchor=(.45, 0.35, .57, .4), bbox_transform=plt.gca().transAxes)
-            ax1.tick_params(axis='x', pad=0, labelsize=9)
-            ax1.tick_params(axis='y', pad=0, labelsize=9)
-            ax1.xaxis.labelpad = 0
-            ax1.yaxis.labelpad = -5
+        if(paper_plot):
+            if(col_idx == 0):
+                plt.subplot(4, 1, 4)
+                ax1 = plt.gca()
+                outer_ax = ax1
+            else:
+                ax1 = inset_axes(ax1, width="100%", height="100%", bbox_to_anchor=(.45, 0.35, .57, .4), bbox_transform=plt.gca().transAxes)
+                ax1.tick_params(axis='x', pad=0, labelsize=9)
+                ax1.tick_params(axis='y', pad=0, labelsize=9)
+                ax1.xaxis.labelpad = 0
+                ax1.yaxis.labelpad = -5
 
-            rect = Rectangle((-0.2, -0.3), 1, 1.3, transform=ax1.transAxes, color='white', zorder=3)
-            outer_ax.add_patch(rect)
-            rect2 = Rectangle((0.35, -0.6), 0.3, 0.3, transform=ax1.transAxes, color='white', zorder=3)
-            outer_ax.add_patch(rect2)
+                rect = Rectangle((-0.2, -0.3), 1, 1.3, transform=ax1.transAxes, color='white', zorder=3)
+                outer_ax.add_patch(rect)
+                rect2 = Rectangle((0.35, -0.6), 0.3, 0.3, transform=ax1.transAxes, color='white', zorder=3)
+                outer_ax.add_patch(rect2)
+        else:
+            plt.subplot(4, 2, 7+col_idx)
+            ax1 = plt.gca()
+            ax1.tick_params(axis='x', pad=0)
+            ax1.tick_params(axis='y', pad=0)
+            ax1.xaxis.labelpad = 0
+            ax1.yaxis.labelpad = 0
 
         plt.sca(ax1)
         plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray') #, rasterized=True)
@@ -2530,11 +2554,14 @@ def plot_impulse_with_recon_3D_paper(data, attributes, template_dict, noise_dict
         plt.grid(True)
         y1, y2 = charge_before-charge_wind, charge_after+charge_wind
         if(col_idx ==0 ):
-            plt.fill_between([charge_range[0]+plot_wind_offset, charge_range[1]+plot_wind_offset], [y1, y1], [y2, y2], color='blue', alpha=0.2, zorder=0)
+            plt.fill_between([charge_range[0]+plot_wind_offset, charge_range[1]+plot_wind_offset], [y1, y1], [y2, y2], color='blue', alpha=0.1, zorder=0)
         
         if(col_idx==1):
-            plt.xlabel("Time [s]", fontsize=9)
-            plt.ylabel("$Q$ [$e$]", fontsize=9)
+            if(paper_plot):
+                plt.xlabel("Time [s]", fontsize=9)
+                plt.ylabel("$Q$ [$e$]", fontsize=9)
+            else:
+                plt.xlabel("Time [s]")
         else:
             plt.xlabel("Time [s]")
             plt.ylabel("Charge, $Q$ [$e$]")
