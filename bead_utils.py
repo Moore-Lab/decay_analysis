@@ -2136,7 +2136,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False,
-                            plot_wind_offset=0, paper_plot=False):
+                            plot_wind_offset=0, paper_plot=False, rasterized=False):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2431,7 +2431,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             opt_data = np.abs(corr_data*amp_cal_facs[1][i])
             y1, y2 = ylim_init[0]*range_fac[i],ylim_init[1]*range_fac[i]
             plt.ylim(y1,y2)
-            ax1.plot(tvec, opt_data, 'k', zorder=0)
+            ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized)
             plt.ylim(ax2y1*range_fac[i], ax2y2*range_fac[i])            #ax1.set_zorder(100)
             #ax1.patch.set_facecolor("None")
             for ax in [ax1]: # , ax2]:
@@ -2440,7 +2440,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             #ax_dict[(sp_idx,1)] = [y1, y2]
             if(col_idx==1):
                 ax2 = ax1.twinx()
-                ax2.plot(tvec, bp_data, color='orange', zorder=1)
+                ax2.plot(tvec, bp_data, color='orange', zorder=1, rasterized=rasterized)
                 if(paper_plot):
                     ax2.tick_params(axis='x', pad=0, labelsize=9)
                     ax2.tick_params(axis='y', pad=0, labelsize=9)
@@ -2530,9 +2530,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             ax1.yaxis.labelpad = 0
 
         plt.sca(ax1)
-        plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray') #, rasterized=True)
+        plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=rasterized) 
         if(col_idx==0):
-            plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red') #, rasterized=True)
+            plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=rasterized)
             plt.ylabel(coord_labs[3])
 
             integer_charge_before = np.round(charge_before)
