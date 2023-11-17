@@ -2137,8 +2137,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], do_lowpass=False, 
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
-                            ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, subplots_dir="",
-                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fname_idx=0):
+                            ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, figsub=[],
+                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2228,6 +2228,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
         xmin_zoom = cent - plot_wind_zoom 
         xmax_zoom = cent + plot_wind_zoom 
        
+
     charge_change_idx = np.argmin(np.abs(tvec[coarse_points]-cent))
 
     charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
@@ -2353,9 +2354,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 cal_fac = 1/amp_cal_facs[0][coord] * 1e9 ## in nm                
 
                 if(do_subtract_plots):
-                    subfig=plt.figure(figsize=(16,4))
+                    subfig=figsub ##plt.figure(figsize=(12,10))
+                    plt.figure(subfig.number)
 
-                    plt.subplot(1,3,1)
+                    plt.subplot(2,2,1)
                     plt.plot(tvec, xdata_widefilt*cal_fac, 'k', label='Minimal filtering')
                     plt.plot(tvec, xdata_drivefilt*cal_fac, 'r', label='Filt. to drive freq.')
                     plt.plot(tvec, drive_resp*sfac*cal_fac, 'b', label='Pred. response')
@@ -2368,7 +2370,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     before_sub = xdata_widefilt*cal_fac
                     after_sub = (xdata_widefilt-drive_resp*sfac)*cal_fac
 
-                    plt.subplot(1,3,2)
+                    plt.subplot(2,2,2)
                     plt.plot(tvec, before_sub, 'k', label='Before sub.')
                     plt.plot(tvec, after_sub, 'orange', label='After sub.')
                     plt.xlim(xmin_zoom, xmax_zoom)
@@ -2377,26 +2379,48 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     plt.ylabel("X position (nm)")
                     plt.legend(loc='upper right', fontsize=9)
 
-                    plt.subplot(1,3,3)
+                    plt.subplot(2,2,3)
                     freqs, psd_before = sp.welch(before_sub, fs=attributes['Fsamp'], nperseg=2**14)
                     freqs, psd_after = sp.welch(after_sub, fs=attributes['Fsamp'], nperseg=2**14)
-                    plt.plot(freqs, psd_before, 'k', label='Before sub.')
-                    plt.plot(freqs, psd_after, 'orange', label='After sub.')
+                    plt.semilogy(freqs, psd_before, 'k', label='Before sub.')
+                    plt.semilogy(freqs, psd_after, 'orange', label='After sub.')
                     plt.xlim(0,150)
-                    plt.ylim(0,2)
+                    gpts = (freqs > 20) & (freqs < 50)
+                    plt.ylim(1e-3,2*np.percentile(psd_after[gpts],95))
                     plt.xlabel("Frequency (Hz)")
                     plt.ylabel("PSD (nm$^2$/Hz)")
                     plt.legend(loc='upper right', fontsize=9)
-                    if(len(subplots_dir)>0):
-                        plt.savefig(subplots_dir + "/sine_subtraction_%d.pdf"%fname_idx, bbox_inches='tight')
-                    #plt.show()
-                    plt.close(subfig)
+
+                    plt.subplot(2,2,4)
+                    ## initial guess
+                    xtilde = np.fft.rfft(xdata_widefilt-drive_resp*sfac)
+                    corr_data_after = np.fft.irfft(prefac * xtilde)
+                    corr_data_after *= field_cal_fac ## factor to account for COMSOL simulation of fields
+                    corr_data_before = corr_data
+
+                    ## low pass if desired
+                    if(do_lowpass):
+                            corr_data_after = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data_after**2))
+                            corr_data_before = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data_before**2))
+
+                    plt.plot(tvec, corr_data_before*amp_cal_facs[1][0], 'k', label='Before sub.')
+                    plt.plot(tvec, corr_data_after*amp_cal_facs[1][0], 'orange', label='After sub.')
+                    plt.xlim(xmin_zoom, xmax_zoom)
+                    gpts = (tvec > xmin_zoom) & (tvec < xmax_zoom) & (corr_data_before>0)
+                    plt.ylim(-50, np.max(corr_data_before[gpts]*amp_cal_facs[1][0])*2)
+                    plt.xlabel("Time (s)")
+                    plt.ylabel("X position (nm)")
+                    plt.legend(loc='upper right', fontsize=9)            
+
+                    #plt.close(subfig)
 
                     ## back to orig fig
                     plt.figure(figout.number)
 
         
         ## now the correlation
+        if(subtract_sine_step and coord=='x'):
+            curr_pos_data = xdata_widefilt-drive_resp*sfac
         xtilde = np.fft.rfft(curr_pos_data)
         corr_data = np.fft.irfft(prefac * xtilde)
         corr_data *= field_cal_fac ## factor to account for COMSOL simulation of fields
@@ -2511,7 +2535,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             if(col_idx == 0):
                 ax1.fill_between([xlims[col_idx+1][0]+plot_wind_offset, xlims[col_idx+1][1]+plot_wind_offset], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.1, zorder=0)
                 ax1.set_ylabel(coord_labs_in[i])
-                if(i==1):
+                if(i==1 and paper_plot):
                     ax1.set_yticks([0,200,400])
             #elif(col_idx==1):
             #    ax1.fill_between([charge_range[0], charge_range[1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.4)
@@ -2604,3 +2628,27 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
     return curr_step_params
 
+def pulse_data_dict_to_hist(pd, tcut=[], do_plot=False):
+    ## take a dictionary with pulse data and return a histogram
+
+    data_out = []
+    for k in pd.keys():
+        currx, curry, currz = pd[k]['x_amp'], pd[k]['y_amp'], pd[k]['z_amp']
+        qbefore, qafter = pd[k]['charge_before'], pd[k]['charge_after']
+        data_out.append([currx, curry, currz, qbefore, qafter, pd[k]['time_hours']])
+
+    data_out = np.array(data_out)
+
+    if(len(tcut)>0):
+        cut = (data_out[:,-1]>tcut[0]) & (data_out[:,-1]<tcut[1])
+    
+    pvals = np.sqrt( data_out[cut,0]**2 + data_out[cut,1]**2 )
+    hh, be = np.histogram(data_out[cut,0], bins=10)
+    bc = be[:-1] + np.diff(be)/2
+
+    if(do_plot):
+        plt.figure()
+        plt.errorbar(bc, hh, yerr=np.sqrt(hh), fmt='ko')
+        plt.show()
+    
+    return data_out
