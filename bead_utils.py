@@ -2168,7 +2168,7 @@ def remove_outliers_iteratively(data, threshold=3, max_iterations=10, convergenc
             prev_std = np.std(data)
             current_std = np.std(cleaned_data)
             if abs(prev_std - current_std) < convergence_threshold*current_std:
-                print(f"Converged after {iteration + 1} iterations.")
+                #print(f"Converged after {iteration + 1} iterations.")
                 break
 
         # Update data for the next iteration
@@ -2177,21 +2177,26 @@ def remove_outliers_iteratively(data, threshold=3, max_iterations=10, convergenc
 
     return m, s
 
-def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 'z']):
+def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 'z'], prepulse_fig = None):
     ## see if we should modify the template based on the prepulse
     fc_x = np.array([5, 70])/nyquist
     b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
 
     range_dict = {'x': [5,115], 'y': [5,200], 'z': [150, 400]}
 
-    plt.figure(figsize=(12, 8))
+    out_dict = {}
+
+    if(not prepulse_fig):
+        prepulse_fig = plt.figure(figsize=(12, 8))
+    plt.figure(prepulse_fig.number)
+
     for j in range(3):
         plt.subplot(3, 2, 1+2*j)
         coord = coord_list[j]
         fc_x = np.array([range_dict[coord][0], range_dict[coord][1]])/nyquist
         b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
         filt_dat = sp.filtfilt(b_x, a_x, data[:,x_idx+j])
-        plt.plot(t, filt_dat, 'tab:blue')
+        plt.plot(t, filt_dat, 'tab:blue', rasterized=True)
         plt.ylabel("Filtered %s [V]"%coord)
         if(coord=='z'):
             plt.xlabel("Time [s]")
@@ -2237,7 +2242,9 @@ def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 
         if(coord=='z'):
             plt.xlabel("Time [s]")
 
-    plt.show()
+        out_dict[coord] = dict(f=freqs, psd=curr_psd)
+    
+    return out_dict
 
 
 def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
@@ -2245,7 +2252,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, figsub=[],
-                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fit_prepulse=False):
+                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fit_prepulse=False, 
+                            prepulse_fig=[]):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2342,7 +2350,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
     
     if(fit_prepulse):
-        fit_prepulse_baseline(data, nyquist, tvec, noise_dict)
+        prepulse_noise = fit_prepulse_baseline(data, nyquist, tvec, noise_dict, prepulse_fig=prepulse_fig)
+    else:
+        prepulse_noise = {}
 
     if(filt_charge_data):
         fc = np.array([8.7,9.3])
@@ -2732,6 +2742,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     curr_step_params['charge_before'] = charge_before
     curr_step_params['charge_after'] = charge_after
 
+    curr_step_params['prepulse_noise'] = prepulse_noise
+
     figout.align_labels()
     plt.figure(figout.number)
     plt.subplots_adjust( hspace=0.0, left=0, right=0.92, top=0.95, bottom=0.05)
@@ -2755,8 +2767,8 @@ def pulse_data_dict_to_hist(pd, tcut=[], do_plot=False):
         cut = np.ones(len(data_out)).astype(bool)
     
     pvals = np.sqrt( data_out[cut,0]**2 + data_out[cut,1]**2 )
-    bins = np.linspace(0,2000,50)
-    hh, be = np.histogram(data_out[cut,0], bins=bins)
+    bins = np.linspace(0,5000,50)
+    hh, be = np.histogram(pvals, bins=bins)
     bc = be[:-1] + np.diff(be)/2
 
     if(do_plot):
