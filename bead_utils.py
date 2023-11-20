@@ -14,6 +14,7 @@ import numexpr as ne
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Rectangle
 import pickle
+from scipy.stats import zscore
 
 
 ## columns in the data files
@@ -2130,7 +2131,113 @@ def stepped_sine_response(A, B, drive, omega0, gamma, omega_vec, Nvec):
     xdrive_inv = np.fft.irfft(xtilde)
     return xdrive_inv
 
+def remove_outliers_iteratively(data, threshold=3, max_iterations=10, convergence_threshold=0.1):
+    """
+    Iteratively remove outliers from a time stream until standard deviation converges.
 
+    Parameters:
+    - data: numpy array, list, or pandas Series
+        The time stream data.
+    - threshold: float, optional (default=3)
+        The Z-score threshold beyond which data points are considered outliers.
+    - max_iterations: int, optional (default=100)
+        The maximum number of iterations to perform.
+    - convergence_threshold: float, optional (default=1e-6)
+        The threshold for standard deviation convergence.
+
+    Returns:
+    - cleaned_data: numpy array
+        Time stream data with outliers removed.
+    """
+
+    # Convert data to a numpy array if it's not already
+    data = np.array(data)
+
+    for iteration in range(max_iterations):
+        # Calculate Z-scores for the data
+        z_scores = zscore(data)
+
+        # Identify outliers based on the threshold
+        outliers = np.abs(z_scores) > threshold
+
+        # Remove outliers
+        cleaned_data = data[~outliers]
+
+        # Check for convergence
+        if iteration > 0:
+            prev_std = np.std(data)
+            current_std = np.std(cleaned_data)
+            if abs(prev_std - current_std) < convergence_threshold*current_std:
+                print(f"Converged after {iteration + 1} iterations.")
+                break
+
+        # Update data for the next iteration
+        data = cleaned_data
+    m,s = np.median(cleaned_data), np.std(cleaned_data)
+
+    return m, s
+
+def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 'z']):
+    ## see if we should modify the template based on the prepulse
+    fc_x = np.array([5, 70])/nyquist
+    b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
+
+    range_dict = {'x': [5,115], 'y': [5,200], 'z': [150, 400]}
+
+    plt.figure(figsize=(12, 8))
+    for j in range(3):
+        plt.subplot(3, 2, 1+2*j)
+        coord = coord_list[j]
+        fc_x = np.array([range_dict[coord][0], range_dict[coord][1]])/nyquist
+        b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
+        filt_dat = sp.filtfilt(b_x, a_x, data[:,x_idx+j])
+        plt.plot(t, filt_dat, 'tab:blue')
+        plt.ylabel("Filtered %s [V]"%coord)
+        if(coord=='z'):
+            plt.xlabel("Time [s]")
+
+        ## find the pulses and zero out
+        mu, st = remove_outliers_iteratively(filt_dat)
+        ppts = np.abs(filt_dat-mu) < 5*st
+        wind = 0.5
+        ppts_wind = ppts.copy()
+        for bad_times in np.where(~ppts)[0]:
+            ppts_wind = ppts_wind & ~((t > t[bad_times]-wind) & (t < t[bad_times]+wind))
+        filt_dat_rem = 1.0*filt_dat
+        filt_dat_rem[~ppts_wind] = np.nan
+        plt.plot(t, filt_dat_rem, 'tab:orange')
+
+        ## now step through and make the PSD
+        nperseg = 2**14
+        nsteps = int(len(t)/nperseg)
+        freqs = np.fft.rfftfreq(nperseg, d=1/(2*nyquist))
+        curr_psd = np.zeros(len(freqs))
+        ngood = 0
+        hann = sp.windows.hann(nperseg)
+        for n in range(nsteps):
+            curr_data = data[:,x_idx+j][(n*nperseg):((n+1)*nperseg)]
+            if np.any(np.isnan(curr_data)):
+                continue
+            curr_psd += np.abs(np.fft.rfft(curr_data*hann))**2
+            ngood += 1
+        curr_psd /= ngood
+        norm = 2*t[nperseg]/nperseg**2
+        curr_psd *= norm ## PSD units of V^2/Hz
+
+        plt.subplot(3, 2, 2+2*j)
+        freqs, psd = sp.welch(data[:,x_idx+j], fs=nyquist*2, nperseg=2**14)
+        J = np.interp(freqs, noise_dict[coord]['freq'], noise_dict[coord]['J'])
+        plt.semilogy(freqs, J, 'k', label="Calib. noise")
+        plt.semilogy(freqs, psd, 'tab:blue', label="Noise (with bursts)")
+        plt.semilogy(freqs, curr_psd, 'tab:orange', label="Prepulse noise (no bursts)")
+        plt.xlim(range_dict[coord][0],range_dict[coord][1])
+        gpts = (freqs > range_dict[coord][0]) & (freqs < range_dict[coord][1])
+        plt.ylim(0.1*np.percentile(curr_psd[gpts], 5), 10*np.percentile(curr_psd[gpts], 95))
+        plt.ylabel("%s PSD [V$^2$/Hz]"%coord)
+        if(coord=='z'):
+            plt.xlabel("Time [s]")
+
+    plt.show()
 
 
 def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
@@ -2138,7 +2245,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, figsub=[],
-                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False):
+                            plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fit_prepulse=False):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2234,6 +2341,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
     charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
     
+    if(fit_prepulse):
+        fit_prepulse_baseline(data, nyquist, tvec, noise_dict)
+
     if(filt_charge_data):
         fc = np.array([8.7,9.3])
         ny_ch = 0.5/(tvec[fine_points][1]-tvec[fine_points][0])
@@ -2372,7 +2482,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
                     plt.subplot(2,2,2)
                     plt.plot(tvec, before_sub, 'k', label='Before sub.')
-                    plt.plot(tvec, after_sub, 'orange', label='After sub.')
+                    plt.plot(tvec, after_sub, 'tab:orange', label='After sub.')
                     plt.xlim(xmin_zoom, xmax_zoom)
                     plt.ylim(-30,30)
                     plt.xlabel("Time (s)")
@@ -2383,7 +2493,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     freqs, psd_before = sp.welch(before_sub, fs=attributes['Fsamp'], nperseg=2**14)
                     freqs, psd_after = sp.welch(after_sub, fs=attributes['Fsamp'], nperseg=2**14)
                     plt.semilogy(freqs, psd_before, 'k', label='Before sub.')
-                    plt.semilogy(freqs, psd_after, 'orange', label='After sub.')
+                    plt.semilogy(freqs, psd_after, 'tab:orange', label='After sub.')
                     plt.xlim(0,150)
                     gpts = (freqs > 20) & (freqs < 50)
                     plt.ylim(1e-3,2*np.percentile(psd_after[gpts],95))
@@ -2404,7 +2514,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             corr_data_before = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data_before**2))
 
                     plt.plot(tvec, corr_data_before*amp_cal_facs[1][0], 'k', label='Before sub.')
-                    plt.plot(tvec, corr_data_after*amp_cal_facs[1][0], 'orange', label='After sub.')
+                    plt.plot(tvec, corr_data_after*amp_cal_facs[1][0], 'tab:orange', label='After sub.')
                     plt.xlim(xmin_zoom, xmax_zoom)
                     gpts = (tvec > xmin_zoom) & (tvec < xmax_zoom) & (corr_data_before>0)
                     plt.ylim(-50, np.max(corr_data_before[gpts]*amp_cal_facs[1][0])*2)
@@ -2470,7 +2580,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             #ax_dict[(sp_idx,1)] = [y1, y2]
             if(col_idx==1):
                 ax2 = ax1.twinx()
-                ax2.plot(tvec, bp_data, color='orange', zorder=1, rasterized=rasterized)
+                ax2.plot(tvec, bp_data, color='tab:orange', zorder=1, rasterized=rasterized)
                 if(paper_plot):
                     ax2.tick_params(axis='x', pad=0, labelsize=9)
                     ax2.tick_params(axis='y', pad=0, labelsize=9)
@@ -2641,9 +2751,12 @@ def pulse_data_dict_to_hist(pd, tcut=[], do_plot=False):
 
     if(len(tcut)>0):
         cut = (data_out[:,-1]>tcut[0]) & (data_out[:,-1]<tcut[1])
+    else:
+        cut = np.ones(len(data_out)).astype(bool)
     
     pvals = np.sqrt( data_out[cut,0]**2 + data_out[cut,1]**2 )
-    hh, be = np.histogram(data_out[cut,0], bins=10)
+    bins = np.linspace(0,2000,50)
+    hh, be = np.histogram(data_out[cut,0], bins=bins)
     bc = be[:-1] + np.diff(be)/2
 
     if(do_plot):
@@ -2651,4 +2764,4 @@ def pulse_data_dict_to_hist(pd, tcut=[], do_plot=False):
         plt.errorbar(bc, hh, yerr=np.sqrt(hh), fmt='ko')
         plt.show()
     
-    return data_out
+    return data_out, hh, bc
