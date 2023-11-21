@@ -993,6 +993,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
 
         plt.subplots_adjust(hspace=0, wspace=0)
 
+    fit_dict['t'] = tvec
     return pulse_dict, fit_dict, fit_vals, norm_dict
 
 def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], 
