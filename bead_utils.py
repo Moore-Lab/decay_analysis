@@ -334,7 +334,7 @@ def plot_charge_steps(charge_vec):
     #plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
     plt.show()
 
-def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170, use_window=False):
+def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170, use_window=False, drive_idx=drive_idx):
     xdat = dat[:,x_idx]
     ddat = dat[:,drive_idx]
 
@@ -354,10 +354,10 @@ def signed_correlation_with_drive(dat, attr, nperseg=-1, recal_fac = 1/170, use_
     #print("Found drive freq: %.2f Hz"%f[didx])
     ## fix issue where some files didn't record the drive for 20230927
     has_drive = True
-    if(np.abs(f[didx]-111)>0.1):
-        didx = np.argmin(np.abs(f-110.93))
-        has_drive = False
-        print("Fixed Drive frequency is: %.2f Hz"%f[didx])
+    #if(np.abs(f[didx]-111)>0.1):
+    #    didx = np.argmin(np.abs(f-110.93))
+    #    has_drive = False
+    #    print("Fixed Drive frequency is: %.2f Hz"%f[didx])
 
     corr_vec = []
     corr2_vec = []
