@@ -485,15 +485,17 @@ def get_lamp_and_filament(dat, npts):
     
     return lamp_dat, fil_dat
 
-def fill_dps(dead_period_edges, color='blue', lab="Dead time"):
+def fill_dps(dead_period_edges, color='blue', lab="Dead time", ax=[]):
+    if(not ax):
+        ax = plt.gca()
     ## define plotting function for dead times
-    yy = plt.ylim()
+    yy = ax.get_ylim()
     for i,dp in enumerate(dead_period_edges):
         if(i==0 and len(lab)>0):
-            plt.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2, label=lab)
+            ax.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2, label=lab)
         else:
-            plt.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2)  
-    plt.ylim(yy)
+            ax.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2)  
+    ax.set_ylim(yy)
 
 def labview_time_to_datetime(lt):
     ### Convert a labview timestamp (i.e. time since 1904) to a 
@@ -2211,7 +2213,7 @@ def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 
             ppts_wind = ppts_wind & ~((t > t[bad_times]-wind) & (t < t[bad_times]+wind))
         filt_dat_rem = 1.0*filt_dat
         filt_dat_rem[~ppts_wind] = np.nan
-        plt.plot(t, filt_dat_rem, 'tab:orange')
+        plt.plot(t, filt_dat_rem, 'orange')
 
         ## now step through and make the PSD
         nperseg = 2**14
@@ -2235,7 +2237,7 @@ def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 
         J = np.interp(freqs, noise_dict[coord]['freq'], noise_dict[coord]['J'])
         plt.semilogy(freqs, J, 'k', label="Calib. noise")
         plt.semilogy(freqs, psd, 'tab:blue', label="Noise (with bursts)")
-        plt.semilogy(freqs, curr_psd, 'tab:orange', label="Prepulse noise (no bursts)")
+        plt.semilogy(freqs, curr_psd, 'orange', label="Prepulse noise (no bursts)")
         plt.xlim(range_dict[coord][0],range_dict[coord][1])
         gpts = (freqs > range_dict[coord][0]) & (freqs < range_dict[coord][1])
         plt.ylim(0.1*np.percentile(curr_psd[gpts], 5), 10*np.percentile(curr_psd[gpts], 95))
@@ -2493,7 +2495,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
                     plt.subplot(2,2,2)
                     plt.plot(tvec, before_sub, 'k', label='Before sub.')
-                    plt.plot(tvec, after_sub, 'tab:orange', label='After sub.')
+                    plt.plot(tvec, after_sub, 'orange', label='After sub.')
                     plt.xlim(xmin_zoom, xmax_zoom)
                     plt.ylim(-30,30)
                     plt.xlabel("Time (s)")
@@ -2504,7 +2506,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     freqs, psd_before = sp.welch(before_sub, fs=attributes['Fsamp'], nperseg=2**14)
                     freqs, psd_after = sp.welch(after_sub, fs=attributes['Fsamp'], nperseg=2**14)
                     plt.semilogy(freqs, psd_before, 'k', label='Before sub.')
-                    plt.semilogy(freqs, psd_after, 'tab:orange', label='After sub.')
+                    plt.semilogy(freqs, psd_after, 'orange', label='After sub.')
                     plt.xlim(0,150)
                     gpts = (freqs > 20) & (freqs < 50)
                     plt.ylim(1e-3,2*np.percentile(psd_after[gpts],95))
@@ -2525,7 +2527,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             corr_data_before = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data_before**2))
 
                     plt.plot(tvec, corr_data_before*amp_cal_facs[1][0], 'k', label='Before sub.')
-                    plt.plot(tvec, corr_data_after*amp_cal_facs[1][0], 'tab:orange', label='After sub.')
+                    plt.plot(tvec, corr_data_after*amp_cal_facs[1][0], 'orange', label='After sub.')
                     plt.xlim(xmin_zoom, xmax_zoom)
                     gpts = (tvec > xmin_zoom) & (tvec < xmax_zoom) & (corr_data_before>0)
                     plt.ylim(-50, np.max(corr_data_before[gpts]*amp_cal_facs[1][0])*2)
@@ -2591,7 +2593,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             #ax_dict[(sp_idx,1)] = [y1, y2]
             if(col_idx==1):
                 ax2 = ax1.twinx()
-                ax2.plot(tvec, bp_data, color='tab:orange', zorder=1, rasterized=rasterized)
+                ax2.plot(tvec, bp_data, color='orange', zorder=1, rasterized=rasterized)
                 if(paper_plot):
                     ax2.tick_params(axis='x', pad=0, labelsize=9)
                     ax2.tick_params(axis='y', pad=0, labelsize=9)
@@ -2627,11 +2629,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     max_val = np.abs(d[max_idx])
                     max_vals.append(np.abs(max_val))
                     max_idxs.append(max_idx)
-
-                if(plot_peak):
                     vec_for_max = 1.0*np.abs(opt_data)
-                    plt.sca(ax1)
                     curr_max_val = vec_for_max[max_idxs[0]]
+                if(plot_peak):
+                    plt.sca(ax1)
                     plt.plot(tvec[max_idxs[0]], curr_max_val, 'bo', label = "%.1f MeV"%curr_max_val)     
                     plt.legend(loc='upper right')
             
