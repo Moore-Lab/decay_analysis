@@ -288,7 +288,7 @@ def get_noise_template_3D(noise_files, fit_vals, range_dict, nfft=-1):
 
         ## expected for resonator params
         eta = 2*res_pars[1]/res_pars[0]
-        omega0 = res_pars[0]/np.sqrt(1 - eta**2) if eta < 1 else 2*res_pars[0]
+        omega0 = res_pars[0]/np.sqrt(1 - eta**2) if eta < 1 else res_pars[0]
         gamma = 2*res_pars[1] ## factor of two by definition
         omega = 2*np.pi*cf
         sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
@@ -301,7 +301,8 @@ def get_noise_template_3D(noise_files, fit_vals, range_dict, nfft=-1):
 
         Jout = 1.0*J
         ## old signal to noise based version
-        Jout[J/sphere_tf > 20] = 1e20
+        if(coord != 'z'):
+            Jout[J/sphere_tf > 20] = 1e20
         ## just cut frequencies instead
         bad_freqs = (cf < range_dict[coord][0]) | (cf > range_dict[coord][1])
         Jout[bad_freqs] = 1e20
@@ -861,7 +862,9 @@ def get_average_template(calib_dict, make_plots=False, fit_pars=[], drive_idx=dr
 
     return pulse_dict, fit_dict, np.array(fit_vals)
 
-def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx, coords_to_use=['x', 'y', 'z'], xrange=[-1,-1]):
+def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx, 
+                            coords_to_use=['x', 'y', 'z'], xrange=[-1,-1], drive_dict=None,
+                            lowpass_dict={'x': -1, 'y': -1, 'z': -1}):
     ## version of the function to make templates for all 3 coordinates (x, y, z)
 
     pulse_dict = {}
@@ -869,7 +872,8 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
     fit_vals = {}
 
     coords_dict = {'x': x_idx, 'y': x_idx+1, 'z': x_idx+2}
-    drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
+    if(not drive_dict):
+        drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
 
     if(make_plots):
         plt.figure(figsize=(18, len(coords_to_use)*4))
@@ -899,6 +903,10 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
             for fname in curr_files:
 
                 cdat, attr, _ = get_data(fname)
+
+                if(lowpass_dict[coord] > 0):
+                    b,a = sp.butter(3, lowpass_dict[coord]/(attr['Fsamp']/2), btype='lowpass') ## get rid of high freq noise
+                    cdat[:,coord_idx] = sp.filtfilt(b,a,cdat[:,coord_idx])
 
                 ## find the impulse times
                 drive_file = cdat[:,drive_coord_idx]
@@ -1286,12 +1294,15 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 
 def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
                  cal_fac=1, drive_idx=drive_idx, do_lp_filt=False, wind=10, 
-                 subtract_sine_step=False, make_plots=False, coord='x', resp_coord='', template_fit_vals={}):
+                 subtract_sine_step=False, make_plots=False, coord='x', resp_coord='', template_fit_vals={},
+                 drive_dict=None):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
     coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
-    drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
+    
+    if(not drive_dict):
+        drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
 
     if(len(resp_coord)==0): ## if we don't specify, assume we want in same direction as drive
         resp_coord = coord
@@ -1393,13 +1404,16 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
 
 
 def optimal_filt_3D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
-                 drive_idx=drive_idx, make_plots=False, coord=['x','y','z'], noise_scale = [1,1,1]):
+                 drive_idx=drive_idx, make_plots=False, coord=['x','y','z'], noise_scale = [1,1,1],
+                 drive_dict=None):
     
     ## optimally filter including noise spectrum
     filt_dict = {}
 
     coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
-    drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
+    
+    if(not drive_dict):
+        drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
 
     ## need to roll this template to start at zero or else we will have an offset
     nsamp_before = np.where(np.abs(template_dict['x']['x'])>0)[0][0]
@@ -1709,7 +1723,8 @@ def plot_impulse_with_recon(data, attributes, opt_filt, xrange=[-1,-1], cal_facs
 
 
 def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], drive_idx=drive_idx, 
-                          plot_wind=3, charge_wind=5, charge_range=[-1,-1], plot_wind_zoom=0.5):
+                          plot_wind=3, charge_wind=5, charge_range=[-1,-1], plot_wind_zoom=0.5,
+                          drive_freq=111, drive_wind=1, data_wind=7):
 
     nyquist =(attributes['Fsamp']/2)
 
@@ -1717,8 +1732,8 @@ def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], driv
     xdata = data[:,x_idx]
     drive_data = data[:,drive_idx]
 
-    fc_drive = np.array([110, 112])/nyquist
-    fc_data = np.array([104, 119])/nyquist
+    fc_drive = np.array([drive_freq-drive_wind,drive_freq+drive_wind])/nyquist
+    fc_data = np.array([drive_freq-data_wind,drive_freq+data_wind])/nyquist
     b_data,a_data = sp.butter(3, fc_data, btype='bandpass')
     b_drive,a_drive = sp.butter(3, fc_drive, btype='bandpass')
     tvec = np.arange(len(xdata))/attributes['Fsamp']
@@ -1785,7 +1800,7 @@ def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], driv
     coord_dat = [data[:,3]] ## alpha detector trigger data
     range_fac = [1,0.8,0.35]
     xlims = [[0, tvec[-1]], [xmin, xmax], [xmin_zoom, xmax_zoom]]
-    coord_labs = ['X [MeV]', 'Y [arb units]', 'Z [arb units]', 'Charge [$e$]']
+    coord_labs = [r'$\alpha$ det trigger', 'Y [arb units]', 'Z [arb units]', 'Charge [$e$]']
     for i in range(1):
 
         for col_idx in range(3):
@@ -2256,7 +2271,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, figsub=[],
                             plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fit_prepulse=False, 
-                            prepulse_fig=[]):
+                            prepulse_fig=[], drive_freq=111, drive_wind=1, data_wind=7):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2277,8 +2292,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     xdata = data[:,x_idx]
     drive_data = data[:,drive_idx]
 
-    fc_drive = np.array([110, 112])/nyquist
-    fc_data = np.array([104, 119])/nyquist
+    fc_drive = np.array([drive_freq-drive_wind,drive_freq+drive_wind])/nyquist
+    fc_data = np.array([drive_freq-data_wind,drive_freq+data_wind])/nyquist
     b_data,a_data = sp.butter(3, fc_data, btype='bandpass')
     b_drive,a_drive = sp.butter(3, fc_drive, btype='bandpass')
     tvec = np.arange(len(xdata))/attributes['Fsamp'] - toffset
@@ -2286,9 +2301,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     nfine = 2**7
     ncoarse = 2**14
     #corr_dat = signed_correlation_with_drive(data, attributes, nperseg=nfine, recal_fac = 1/170)
-    drive_data_tilde = np.fft.rfft(drive_data)
+    #drive_data_tilde = np.fft.rfft(drive_data)
 
     drive_data = sp.filtfilt(b_drive,a_drive,drive_data)
+
     xdata = sp.filtfilt(b_data,a_data,xdata)
 
     window_fine=sp.windows.hamming(nfine)
