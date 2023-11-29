@@ -486,16 +486,22 @@ def get_lamp_and_filament(dat, npts):
     
     return lamp_dat, fil_dat
 
-def fill_dps(dead_period_edges, color='blue', lab="Dead time", ax=[]):
+def fill_dps(dead_period_edges, color='blue', lab="Dead time", ax=[], line=False):
     if(not ax):
         ax = plt.gca()
     ## define plotting function for dead times
     yy = ax.get_ylim()
     for i,dp in enumerate(dead_period_edges):
         if(i==0 and len(lab)>0):
-            ax.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2, label=lab)
+            if(line):
+                ax.plot([dp[0], dp[0]], [yy[0],yy[1]], color=color, alpha=0.1, label=lab, lw=0.5)
+            else:
+                ax.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2, label=lab)
         else:
-            ax.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2)  
+            if(line):
+                ax.plot([dp[0], dp[0]], [yy[0],yy[1]], color=color, alpha=0.1, label=lab)
+            else:
+                ax.fill_between(dp, [yy[0],yy[0]], [yy[1],yy[1]], color=color, alpha=0.2, lw=0.5)  
     ax.set_ylim(yy)
 
 def labview_time_to_datetime(lt):
