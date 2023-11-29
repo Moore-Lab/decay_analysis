@@ -2592,6 +2592,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     ax1.xaxis.labelpad = 0
                     ax1.yaxis.labelpad = 0
                     ax1.set_ylabel(coord_labs_in[i], fontsize=9)
+                lw = 1
             else:
                     sp_idx = 2*i + col_idx + 1
                     plt.subplot(4,2,sp_idx)
@@ -2600,13 +2601,17 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     ax1.tick_params(axis='y', pad=0)
                     ax1.xaxis.labelpad = 0
                     ax1.yaxis.labelpad = 0
+                    lw=1
 
             bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
             #ax1.plot(tvec, bp_data, color='k', rasterized=True, zorder=1)
             opt_data = np.abs(corr_data*amp_cal_facs[1][i])
             y1, y2 = ylim_init[0]*range_fac[i],ylim_init[1]*range_fac[i]
             plt.ylim(y1,y2)
-            ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized)
+            if(col_idx==0):
+                ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized, lw=lw)
+            else:
+                ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized)
             plt.ylim(ax2y1*range_fac[i], ax2y2*range_fac[i])            #ax1.set_zorder(100)
             #ax1.patch.set_facecolor("None")
             for ax in [ax1]: # , ax2]:
@@ -2720,7 +2725,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             ax1.yaxis.labelpad = 0
 
         plt.sca(ax1)
-        plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=rasterized) 
+        if(col_idx==0):
+            plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=rasterized, lw=lw) 
+        else:
+            plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=rasterized) 
         if(col_idx==0):
             plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=rasterized)
             plt.ylabel(coord_labs[3])
