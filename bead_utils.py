@@ -1846,10 +1846,10 @@ def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], driv
     #plt.tight_layout()
     return figout
 
-def calc_expected_spectrum(noise_vals, make_plots=False):
+def calc_expected_spectrum(noise_vals, make_plots=False, docut=False):
     ## plots of expected spectrum vs D.O.F.
     ## what is the expected distribution of amplitudes projected onto x:
-    npts = int(1e7)
+    npts = int(1e6)
     phi = 2*np.pi*np.random.rand(npts)
     theta = np.arccos(2*np.random.rand(npts)-1)
 
@@ -1857,25 +1857,40 @@ def calc_expected_spectrum(noise_vals, make_plots=False):
     decay_momenta = [0, 265, 220] ## MeV
     branching_fractions = [0.58, 0.27, 0.15] ## fraction of decays
     labels = [r'$\beta$', '$^{212}$Po', '$^{212}$Bi']
-    noise = 40 ## MeV
 
     ndof = [1,2,3]
     epdf_ndof = []
 
+    if(make_plots):
+        plt.figure(figsize=(15,4))
     for k,nd in enumerate(ndof):
         bins = np.linspace(0, 500, 500)
         htot = np.zeros(len(bins)-1)
         hlist = []
         for j,dm in enumerate(decay_momenta):
-            if(nd == 1):
-                curr_vals = dm*np.sin(phi)*np.cos(theta) + noise_vals[k]*np.random.randn(npts)
-            elif(nd == 2):
-                curr_vals = dm*np.cos(theta) + noise_vals[k]*np.random.randn(npts)
-            else:
-                curr_vals = dm + noise_vals[k]*np.random.randn(npts)  
 
-            if(dm == 0):
-                curr_vals += 50 ## pedestal dominates for beta decays
+            Ax = dm*np.cos(phi)*np.sin(theta) + noise_vals[0]*np.random.randn(npts)
+            Ay = dm*np.sin(phi)*np.sin(theta) + noise_vals[1]*np.random.randn(npts)
+            Az = dm*np.cos(theta) + noise_vals[2]*np.random.randn(npts)
+
+            if(nd==1):
+                curr_vals = Ax
+                if(docut):
+                    gpts = (np.abs(Ay) < 2*noise_vals[1]) & (np.abs(Az) < 2*noise_vals[2]) #& (Ax > 3*noise_vals[0])
+                    curr_vals = curr_vals[gpts]
+            elif(nd==2):
+                curr_vals = np.sqrt(Ax**2 + Ay**2) 
+                if(docut):
+                    gpts = (np.abs(Az) < 2*noise_vals[2]) #& (Ax > 3*noise_vals[0]) & (Ay > 3*noise_vals[1])
+                    curr_vals = curr_vals[gpts]
+            else:
+                curr_vals = np.sqrt(Ax**2 + Ay**2 + Az**2)
+                if(docut):
+                    gpts = curr_vals > 0
+                    curr_vals = curr_vals[gpts]
+
+            #if(dm == 0):
+            #    curr_vals += 50 ## pedestal dominates for beta decays
             hh, be = np.histogram(curr_vals, bins=bins)
             hlist.append(branching_fractions[j]*hh)
             htot += branching_fractions[j]*hh
@@ -1885,8 +1900,11 @@ def calc_expected_spectrum(noise_vals, make_plots=False):
 
         bc = bins[:-1] + 0.5*np.diff(bins)
 
+        gpts = bc > 200
+
+
         if(make_plots):
-            plt.figure()
+            plt.subplot(1,3,k+1)
             plt.plot(bc, htot, 'k', label='Total')
 
             for j,hh in enumerate(hlist):
@@ -1894,8 +1912,8 @@ def calc_expected_spectrum(noise_vals, make_plots=False):
 
             plt.xlabel("Reconstructed momentum [MeV]")
             plt.ylabel("Probability density [MeV$^{-1}$]")
-            plt.xlim(0,350)
-
+            plt.xlim(0,400)
+            plt.ylim(0, 1.5*np.max(htot[gpts]))
         exp_bins = bc
         exp_pdf = htot
         epdf_ndof.append(exp_pdf)
