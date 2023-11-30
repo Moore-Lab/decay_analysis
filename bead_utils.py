@@ -1371,7 +1371,7 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 else:
                     b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
 
-                corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data**2))
+                corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, np.abs(corr_data)**2))
 
             impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
                                              drive_idx=drive_dict[coord], drive_freq = 120)
@@ -1939,234 +1939,6 @@ def get_edges_from_livetime_vec(live_vec, time_hours, dp_edges_orig):
 
     return dead_period_edges
 
-
-# def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
-#                             drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], do_lowpass=False, 
-#                             ylim_init=600, plot_wind_zoom=0.5, filt_time_offset = 0, figout=None, filament_col=12):
-
-#     coord_list = ['x', 'y', 'z']
-#     nyquist =(attributes['Fsamp']/2)
-
-#     ## coarse LP filter
-#     fc_x = np.array([5, 70])/nyquist
-#     b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
-#     x_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx])
-#     y_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+1])
-#     z_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+2])
-
-#     b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
-#     lp_recal_fac = 2.43 ## need to do a detailed study with calibration data -- this is meant to correct
-#                         ## for amplitude loss due to the low pass filter
-
-#     ## charge data
-#     xdata = data[:,x_idx]
-#     drive_data = data[:,drive_idx]
-
-#     fc_drive = np.array([110, 112])/nyquist
-#     fc_data = np.array([104, 119])/nyquist
-#     b_data,a_data = sp.butter(3, fc_data, btype='bandpass')
-#     b_drive,a_drive = sp.butter(3, fc_drive, btype='bandpass')
-#     tvec = np.arange(len(xdata))/attributes['Fsamp']
-
-#     nfine = 2**7
-#     ncoarse = 2**14
-#     #corr_dat = signed_correlation_with_drive(data, attributes, nperseg=nfine, recal_fac = 1/170)
-#     drive_data_tilde = np.fft.rfft(drive_data)
-
-#     drive_data = sp.filtfilt(b_drive,a_drive,drive_data)
-#     xdata = sp.filtfilt(b_data,a_data,xdata)
-
-#     window_fine=sp.windows.hamming(nfine)
-#     window_coarse=sp.windows.hamming(ncoarse)
-
-#     fine_points = range(int(nfine/2),len(xdata),nfine)
-#     coarse_points = range(int(ncoarse/2),len(xdata),int(ncoarse/2))
-
-#     corr_dat_fine = 1.0*np.zeros_like(fine_points)
-#     corr_dat_coarse = 1.0*np.zeros_like(coarse_points)
-
-#     for i, pt in enumerate(fine_points[1:-1]):
-#         st, en = int(pt - nfine/2), int(pt + nfine/2)
-#         corr_dat_fine[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_fine)
-
-#     for i, pt in enumerate(coarse_points[1:-1]):
-#         st, en = int(pt - ncoarse/2), int(pt + ncoarse/2)
-#         corr_dat_coarse[i+1] = -np.sum(xdata[st:en]*drive_data[st:en]*window_coarse)
-
-
-#     ## find the index of any charge changes
-#     coarse_diff = np.diff(corr_dat_coarse)
-#     coarse_diff[0] = 0 ## throw out edge effects
-#     coarse_diff[-1] = 0
-
-#     fine_diff = np.diff(corr_dat_fine)
-#     coarse_diff[0:10] = 0 ## throw out edge effects
-#     coarse_diff[-10:] = 0
-
-#     if( xrange[0] < 0):
-#         charge_change_idx = np.argmax(np.abs(coarse_diff))
-
-#         cent = tvec[coarse_points][charge_change_idx]
-#         #print("found coarse cent: ", cent)
-#         ## now use the finely spaced data
-#         fine_wind = (tvec[fine_points] > cent - 2*plot_wind_zoom) & (tvec[fine_points] < cent + 2*plot_wind_zoom)
-#         charge_change_idx_fine = np.argmax(np.abs(fine_diff[fine_wind[:-1]]))
-#         #print(charge_change_idx_fine)
-#         cent += (tvec[fine_points][fine_wind][charge_change_idx_fine] - np.median(tvec[fine_points][fine_wind]))
-#         #print("found fine cent: ", cent)
-
-#         xmin = cent-plot_wind
-#         xmax = cent+plot_wind
-        
-#         xmin_zoom = cent-plot_wind_zoom
-#         xmax_zoom = cent+plot_wind_zoom
-
-#         charge_range = [xmin_zoom, xmax_zoom]
-
-#     else:        
-#         xmin = xrange[0] 
-#         xmax = xrange[1] 
-
-#         cent = np.mean(xrange)
-#         xmin_zoom = cent - plot_wind_zoom
-#         xmax_zoom = cent + plot_wind_zoom
-       
-#     charge_change_idx = np.argmin(np.abs(tvec[coarse_points]-cent))
-
-#     charge_before = np.median(corr_dat_coarse[1:charge_change_idx])*cal_facs[1]
-#     charge_after = np.median(corr_dat_coarse[(charge_change_idx+1):-1])*cal_facs[1]
-    
-#     if(not figout):
-#         figout = plt.figure(figsize=(21,12))
-        
-#     plt.figure(figout.number)
-#     coord_dat = [x_position_data, y_position_data, z_position_data]
-#     range_fac = [1,1,0.2]
-#     xlims = [[0, tvec[-1]], [xmin, xmax], [xmin_zoom, xmax_zoom]]
-#     coord_labs = ['X position [nm]', 'Y position [nm]', 'Z position [nm]', 'Charge [$e$]']
-#     coord_labs_MeV = ['X amplitude [MeV]', 'Y amplitude [MeV]', 'Z amplitude [MeV]']
-
-#     fil_vec = (data[:,filament_col]>0.5)
-#     fil_times = tvec[fil_vec]
-#     ax2y1, ax2y2 = -350, 350
-#     bsfac = 10
-#     ax_dict = {}
-#     for i in range(3):
-
-#         coord = coord_list[i]
-#         curr_template = template_dict[coord][coord]
-#         ## need to roll this template to start at zero or else we will have an offset
-#         nsamp_before = np.where(np.abs(curr_template)>0)[0][0]
-#         curr_template = np.roll(curr_template,-nsamp_before)
-#         Npts = len(data[:,x_idx+i])
-#         ## zero pad the current_template
-#         curr_template = np.hstack((curr_template, np.zeros(Npts-len(curr_template))))
-#         stilde = np.conjugate(np.fft.rfft(curr_template))
-#         sfreq = np.fft.rfftfreq(len(curr_template),d=1/attributes['Fsamp'])
-#         J = np.interp(sfreq, noise_dict[coord]['freq'], noise_dict[coord]['J'])
-#         prefac = stilde/J
-#         xtilde = np.fft.rfft(data[:,x_idx+i])
-#         corr_data = np.fft.irfft(prefac * xtilde)
-#         ## low pass if desired
-#         if(do_lowpass):
-#             corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data**2))
-#             gpts = corr_data > 0
-#             corr_data -= np.median(corr_data[gpts])
-#             corr_data *= lp_recal_fac
-
-#         for col_idx in range(3):
-#             sp_idx = 3*i + col_idx + 1
-#             plt.subplot(4,3,sp_idx)
-#             ax1 = plt.gca()
-#             bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
-#             ax1.plot(tvec, bp_data, color='k', rasterized=True, zorder=1)
-#             opt_data = np.abs(corr_data*amp_cal_facs[1][i])
-#             y1, y2 = -ylim_init*range_fac[i],ylim_init*range_fac[i]
-#             plt.ylim(y1,y2)
-#             ax2 = ax1.twinx()
-#             ax2.plot(tvec, opt_data, 'orange', rasterized=True, zorder=0)
-#             plt.ylim(-350,350)
-#             #ax1.set_zorder(100)
-#             #ax1.patch.set_facecolor("None")
-#             for ax in [ax1, ax2]:
-#                 ax.set_xticklabels([])
-#             ax_dict[sp_idx] = [ax1, ax2]
-#             ax_dict[(sp_idx,1)] = [y1, y2]
-
-#             ## find max around the pulse time in the X data
-#             markstyle = ['bo', 'ko']
-#             if(sp_idx==3):
-#                 max_vals = []
-#                 max_idxs = []
-#                 for ms,d in zip(markstyle, [opt_data, bp_data]):
-#                     search_wind = 0.1 ## +/- 100 ms
-#                     gpts = (tvec > cent -search_wind) & (tvec < cent+search_wind) & (d>0)
-#                     vec_for_max = 1.0*np.abs(d)
-#                     vec_for_max[~gpts] = 0  
-#                     max_idx = np.argmax(vec_for_max)
-#                     max_val = np.abs(d[max_idx])
-#                     if(ms == 'bo'):
-#                         plt.plot(tvec[max_idx], d[max_idx], ms, label = "%.1f MeV"%max_val)
-#                     max_vals.append(np.abs(max_val))
-#                     max_idxs.append(max_idx)
-
-#                 plt.legend(loc='upper right')
-
-
-#             if( sp_idx % 3 == 0):
-#                 ax1.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [bsfac*y1, bsfac*y2], 'b:')
-
-#             if(col_idx==0):
-#                 ax1.fill_between([charge_range[0], charge_range[1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.4, zorder=100)
-#                 ax1.set_ylabel(coord_labs[i])
-#             elif(col_idx==1):
-#                 ax1.fill_between([charge_range[0], charge_range[1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.4)
-#             elif(col_idx==2):
-#                 ax2.set_ylabel(coord_labs_MeV[i])
-
-#             if(len(fil_times)>0):
-#                 #print("filling filament")
-#                 ff=np.ones_like(fil_times)
-#                 ax1.fill_between(fil_times, bsfac*y1*ff, y1 + bsfac*ff*(y2-y1), color='red', alpha=0.2)
-            
-#             plt.xlim(xlims[col_idx])
-
-#     for col_idx in range(3):
-#         plt.subplot(4, 3, 10 + col_idx)
-#         plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=True)
-#         plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=True)
-#         if(col_idx==0):
-#             plt.ylabel(coord_labs[3])
-#         plt.xlim(xlims[col_idx])
-
-#         plt.ylim(charge_before-charge_wind, charge_after+charge_wind)
-#         plt.grid(True)
-#         y1, y2 = charge_before-charge_wind, charge_after+charge_wind
-#         if(col_idx < 2):
-#             plt.fill_between([charge_range[0], charge_range[1]], [y1, y1], [y2, y2], color='blue', alpha=0.4, zorder=100)
-#         plt.xlabel("Time [s]")
-
-#         if( col_idx == 2):
-#             plt.plot([tvec[max_idxs[0]],tvec[max_idxs[0]]], [y1, y2], 'b:')
-
-#         if(len(fil_times)>0):
-#             plt.fill_between(fil_times, y1*ff, y1 + ff*(y2-y1), color='red', alpha=0.2)
-
-#     # zoom out if needed
-#     if(max_vals[0] > 350):
-#         rs = max_vals[0]/350 * 1.5
-#         for i in range(3):
-#             for col_idx in range(3):
-#                 sp_idx = 3*i + col_idx + 1
-#                 ax_dict[sp_idx][0].set_ylim(ax_dict[(sp_idx,1)][0]*rs, ax_dict[(sp_idx,1)][1]*rs) 
-#                 ax_dict[sp_idx][1].set_ylim(ax2y1*rs, ax2y2*rs) 
-
-#     plt.subplots_adjust( hspace=0.0, left=0.04, right=0.95, top=0.95, bottom=0.05)
-#     #plt.tight_layout()
-
-#     step_params = [max_vals[0], max_vals[1], charge_after-charge_before]
-#     return step_params
-
 def stepped_sine_response(A, B, drive, omega0, gamma, omega_vec, Nvec):
     svec_tilde = np.fft.rfft( (A + (B-A)*Nvec)*drive )
     xtilde = svec_tilde/(omega0**2 - omega_vec**2 + 1j*gamma*omega_vec)
@@ -2230,6 +2002,7 @@ def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 
 
     if(not prepulse_fig):
         prepulse_fig = plt.figure(figsize=(12, 8))
+    
     plt.figure(prepulse_fig.number)
 
     for j in range(3):
@@ -2587,15 +2360,14 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
         xtilde = np.fft.rfft(curr_pos_data)
         corr_data = np.fft.irfft(prefac * xtilde)
         corr_data *= field_cal_fac ## factor to account for COMSOL simulation of fields
+        corr_data_orig = 1.0*corr_data
 
         ## low pass if desired
         if(do_lowpass):
             if(i < 2):
-                corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, corr_data**2))
+                corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, np.abs(corr_data)**2))
             else:
-                corr_data = np.sqrt(sp.filtfilt(b_lpz, a_lpz, corr_data**2))
-            gpts = (corr_data > 0)
-            #corr_data -= np.percentile(corr_data[gpts],1)
+                corr_data = np.sqrt(sp.filtfilt(b_lpz, a_lpz, np.abs(corr_data)**2))
 
         for col_idx in range(2):
             if(paper_plot):
@@ -2624,12 +2396,16 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
             #ax1.plot(tvec, bp_data, color='k', rasterized=True, zorder=1)
             opt_data = np.abs(corr_data*amp_cal_facs[1][i])
+            opt_data_orig = corr_data_orig*amp_cal_facs[1][i]
             y1, y2 = ylim_init[0]*range_fac[i],ylim_init[1]*range_fac[i]
             plt.ylim(y1,y2)
             if(col_idx==0):
                 ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized, lw=lw)
             else:
+                if(not paper_plot): 
+                    ax1.plot(tvec, opt_data_orig, 'gray', zorder=0)
                 ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized)
+                
             plt.ylim(ax2y1*range_fac[i], ax2y2*range_fac[i])            #ax1.set_zorder(100)
             #ax1.patch.set_facecolor("None")
             for ax in [ax1]: # , ax2]:
@@ -2694,6 +2470,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
             if(col_idx == 1):
                 curr_step_params[coord + "_amp"] = curr_max_val
+                curr_step_params[coord + "_time"] = tvec[max_idxs[0]]
 
             if( col_idx == 1):
                 yy = ax1.get_ylim()
@@ -2747,6 +2524,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=rasterized, lw=lw) 
         else:
             plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=rasterized) 
+
+        if(col_idx == 1 and not paper_plot):
+            plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=rasterized)
+
         if(col_idx==0):
             plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=rasterized)
             plt.ylabel(coord_labs[3])
@@ -2794,6 +2575,11 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
     curr_step_params['prepulse_noise'] = prepulse_noise
 
+    curr_step_params['t_fine'] = tvec[fine_points]
+    curr_step_params['charge_fine'] = corr_dat_fine*cal_facs[0]
+    curr_step_params['t_coarse'] = tvec[coarse_points]
+    curr_step_params['charge_coarse'] = corr_dat_coarse*cal_facs[1]
+
     figout.align_labels()
     plt.figure(figout.number)
     plt.subplots_adjust( hspace=0.0, left=0, right=0.92, top=0.95, bottom=0.05)
@@ -2805,6 +2591,7 @@ def pulse_data_dict_to_hist(pd, tcut=[], do_plot=False):
 
     data_out = []
     for k in pd.keys():
+        print(pd[k])
         currx, curry, currz = pd[k]['x_amp'], pd[k]['y_amp'], pd[k]['z_amp']
         qbefore, qafter = pd[k]['charge_before'], pd[k]['charge_after']
         data_out.append([currx, curry, currz, qbefore, qafter, pd[k]['time_hours']])
@@ -2827,3 +2614,71 @@ def pulse_data_dict_to_hist(pd, tcut=[], do_plot=False):
         plt.show()
     
     return data_out, hh, bc
+
+def position_to_force(data, res_params, fs, filt_freqs=[]):
+    ## take pulse data and resonator parameters and convert a position time stream to force
+    ## using the susceptibility
+    
+    nyquist = fs/2
+    omega0, gamma = res_params[0], res_params[1]
+
+    xtilde = np.fft.rfft(data)
+    fvec = np.fft.rfftfreq(len(data), d=1/fs)
+
+    omega_vec = 2*np.pi*fvec
+    Ftilde = xtilde * (omega0**2 - omega_vec**2 + 1j*gamma*omega_vec) * sp.windows.hann(len(xtilde))
+    force = np.fft.irfft(Ftilde)
+
+    if(len(filt_freqs)>0):
+        fc_f = np.array(filt_freqs)/nyquist
+        b_f,a_f = sp.butter(3, fc_f, btype='bandpass')
+        force = sp.filtfilt(b_f, a_f, force)
+
+    return force
+
+def pulse_recon(step_params, res_params):
+
+    coord_list = ['x', 'y', 'z']
+
+    pulse_wind = 2
+    pulse_time = step_params['x_time']
+
+    ## function to take a second pass at reconstructing the steps
+    
+    cdat, attr, _ = get_data(step_params['filename'])
+    tvec = np.arange(len(cdat[:,0]))/attr['Fsamp']
+
+    nyquist = attr['Fsamp']/2
+
+    plt.figure(figsize=(12,10))
+
+    for j, coord in enumerate(coord_list):
+        f0 = res_params[coord][coord][1]/(2*np.pi)
+        gamma = res_params[coord][coord][2]/(2*np.pi)
+
+        if(coord in ['x', 'y']):
+            fc_x = np.array([f0-3*gamma, f0+3*gamma])/nyquist
+        else:
+            fc_x = np.array([100, 500])/nyquist           
+        
+        b_x, a_x = sp.butter(3, fc_x, btype='bandpass')
+        x_filt = sp.filtfilt(b_x, a_x, cdat[:,x_idx])
+
+        pars = [res_params[coord][coord][1], res_params[coord][coord][2]]
+        #filt_freqs = [10, f0/2]
+        if(coord in ['x', 'y']):
+            filt_freqs = [10, f0/2+gamma]
+        force = position_to_force(cdat[:,x_idx+j], pars, attr['Fsamp'], filt_freqs)
+
+        gpts = (tvec > pulse_time-pulse_wind) & (tvec < pulse_time+pulse_wind)
+        norm = np.max(np.abs(x_filt[gpts]))/np.max(np.abs(force[gpts]))
+
+        plt.subplot(4,1,1+j)
+        plt.plot(tvec, x_filt, 'k')
+        plt.plot(tvec, force*norm, 'r')
+        plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+        ym = np.max(np.abs(x_filt[gpts]))
+        plt.ylim(-2*ym, 2*ym) 
+        plt.plot([pulse_time, pulse_time], [-2*ym, 2*ym], 'b:')
+    
+    plt.show()
