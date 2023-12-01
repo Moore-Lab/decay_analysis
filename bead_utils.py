@@ -20,7 +20,7 @@ from scipy.stats import zscore
 ## columns in the data files
 x_idx, y_idx, z_idx = 0, 1, 2
 drive_idx = 8 ## for data starting 9/27/2023
-
+coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
 
 def get_data(fname, gain_error=1.0):
     ### Get bead data from a file.  Guesses whether it's a text file
@@ -1014,7 +1014,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
 
 def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch_list = [], 
                   omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=False, 
-                  cal_fac = 1, drive_idx=drive_idx, make_plots=False):
+                  cal_fac = 1, wind=30, drive_idx=drive_idx, make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
@@ -1049,7 +1049,6 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
             corr_vals = []
             corr_idx = []
             idx_offsets = []
-            wind=300
             for ic in impulse_cent:
                 current_search = corr_data[(ic-wind):(ic+wind)]
                 if(len(current_search)==0): continue
@@ -1074,7 +1073,7 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
 
 def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[], notch_list = [], 
                      omega0 = 2*np.pi*40, gamma = 2*np.pi*4, subtract_sine_step=False, pulse_data=True, 
-                     drive_idx=drive_idx, make_plots=False):
+                     drive_idx=drive_idx, wind=30, make_plots=False):
     ## simple time domain correlation between template and data
     filt_dict = {}
 
@@ -1117,7 +1116,6 @@ def correlation_filt(calib_dict, template_dict, f0=40, time_offset=0, bandpass=[
             #filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_data[impulse_cent]))
             corr_vals = []
             corr_idx = []
-            wind=30
             for ic in impulse_cent:
                 current_search = corr_data[(ic-wind):(ic+wind)]
                 corr_vals.append(np.max(current_search))
@@ -1365,13 +1363,32 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                                                             ## note we have to reverse the vector because of the def'n
                                                             ## of irfft (we could use fft but not with rfft variants)
 
-            if(do_lp_filt):
-                if(resp_coord == 'z'):
-                    b_lp, a_lp = sp.butter(3, 200/nyquist, btype='lowpass') ## optional low pass for opt filt
-                else:
-                    b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
+            #b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
+            #filt_data_absfilt = sp.filtfilt(b_lp, a_lp, np.abs(corr_data))
+            
+            #b_lp, a_lp = sp.butter(3, 50/nyquist, btype='lowpass') ## optional low pass for opt filt
+            #filt_data_filt = sp.filtfilt(b_lp, a_lp, corr_data)
 
-                corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, np.abs(corr_data)**2))
+            #corr_data = 1.0*filt_data_filt
+
+            #if(do_lp_filt):
+            #    if(resp_coord == 'z'):
+            #        b_lp, a_lp = sp.butter(3, 200/nyquist, btype='lowpass') ## optional low pass for opt filt
+            #    else:
+            #        b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
+            #
+            #    corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, np.abs(corr_data)**2))
+
+            if(do_lp_filt):
+                if(coord == 'x'):
+                    ff = 50
+                elif(coord == 'y'):
+                    ff = 300
+                elif(coord == 'z'):
+                    ff = 500
+                
+                b_lp, a_lp = sp.butter(3, ff/nyquist, btype='lowpass') ## optional low pass for opt filt
+                corr_data = sp.filtfilt(b_lp, a_lp, corr_data)
 
             impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
                                              drive_idx=drive_dict[coord], drive_freq = 120)
@@ -1400,10 +1417,109 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 plt.plot(tvec, cdat[:,drive_dict[coord]]*nfac * 250)
                 #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
                 plt.plot(tvec, corr_data*sfac )
+                #plt.plot(tvec, filt_data_absfilt*sfac*3 )
+                #plt.plot(tvec, filt_data_filt*sfac*3 )
+                plt.plot(tvec[corr_idx], np.array(corr_vals)*sfac, 'ro')
+                plt.xlim(0, 2)
+                #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
+                plt.ylim(-50,np.median(np.abs(corr_vals)*sfac)*2)
+                plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
+
+    return filt_dict
+
+def force_recon_1D(calib_dict, res_params, pulse_data=True, time_offset=0, 
+                 cal_fac=1, drive_idx=drive_idx, do_lp_filt=False, wind=10, 
+                 subtract_sine_step=False, make_plots=False, coord='x', resp_coord='', template_fit_vals={},
+                 drive_dict=None):
+    ## optimally filter including noise spectrum
+    filt_dict = {}
+
+    coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
+    
+    if(not drive_dict):
+        drive_dict = {'x': drive_idx, 'y': drive_idx+1, 'z': drive_idx-1}
+
+    if(len(resp_coord)==0): ## if we don't specify, assume we want in same direction as drive
+        resp_coord = coord
+
+
+    for amp_idx, impulse_amp in enumerate(calib_dict[coord].keys()):
+        #if(amp_idx>0): break
+
+        curr_files = calib_dict[coord][impulse_amp]
+
+        filt_dict[impulse_amp] = []
+        off_key = str(impulse_amp) + "_offsets"
+        filt_dict[off_key] = []
+        for fnidx, fname in enumerate(curr_files):
+            #print("Working on file: %s"%fname)
+            cdat, attr, _ = get_data(fname)
+            fs = attr['Fsamp']
+            nyquist = fs/2
+            xdata = cdat[:,coords_dict[resp_coord]]
+            
+            if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
+                omega0, gamma = template_fit_vals[coord][coord][1], template_fit_vals[coord][coord][2]
+                step_impulse = predict_step_impulse(cdat, nyquist*2, omega0, gamma, make_plots=True, drive_idx=drive_idx) 
+
+                bf, af = sp.butter(3, [5/nyquist, 200/nyquist], btype='bandpass')
+                tvec = np.arange(Npts)/attr['Fsamp']
+                plt.figure()
+                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                xdata -= step_impulse
+                plt.plot(tvec,sp.filtfilt(bf,af,xdata))    
+                plt.xlim(0,10)
+                plt.show()
+
+
+            f0 = res_params[coord][coord][1]/(2*np.pi)
+            gamma = res_params[coord][coord][2]/(2*np.pi)
+            if(coord in ['x', 'y', 'z']):
+                filt_freqs = [10, 20]
+
+            pars = [res_params[coord][coord][1], res_params[coord][coord][2]]
+            corr_data = position_to_force(cdat[:,coords_dict[coord]], pars, fs, filt_freqs)
+
+            if(do_lp_filt):
+                if(resp_coord == 'z'):
+                    b_lp, a_lp = sp.butter(3, 200/nyquist, btype='lowpass') ## optional low pass for opt filt
+                else:
+                    b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
+
+                corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, np.abs(corr_data)**2))
+
+            impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
+                                             drive_idx=drive_dict[coord], drive_freq = 120)
+
+            corr_vals = []
+            corr_idx = []
+            idx_offsets = []
+            for ic in impulse_cent:
+                icd = int(ic)
+                sidx, eidx = icd-wind, icd+wind-1
+                if(sidx < 0): sidx = 0
+                if(eidx  >= len(corr_data)): eidx = len(corr_data)-1
+                current_search = np.abs(corr_data[sidx:eidx])
+                corr_vals.append(np.max(current_search))
+                corr_idx.append(sidx+np.argmax(current_search))
+                idx_offsets.append( np.argmax(current_search) - wind)
+            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
+            filt_dict[off_key] = np.hstack((filt_dict[off_key], idx_offsets))
+
+            if(make_plots and fnidx==0):
+                Npts = len(corr_data)
+                tvec = np.arange(Npts)/attr['Fsamp']
+                fstr = str.split(fname,'/')[-1]
+                sfac = cal_fac
+                plt.figure(figsize=(15,3))
+                nfac = 1/np.max(cdat[:,drive_dict[coord]])
+                plt.plot(tvec, cdat[:,drive_dict[coord]]*nfac * 250)
+                #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
+                plt.plot(tvec, corr_data*sfac )
                 plt.plot(tvec[corr_idx], np.array(corr_vals)*sfac, 'ro')
                 plt.xlim(0, 10)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(-50,np.median(np.abs(corr_vals)*sfac)*2)
+                plt.ylim(-50,500) #np.median(np.abs(corr_vals)*sfac)*2)
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict
@@ -2636,11 +2752,38 @@ def position_to_force(data, res_params, fs, filt_freqs=[]):
 
     return force
 
-def pulse_recon(step_params, res_params):
+
+def compute_opt_filt(data, coord, template_dict, noise_dict, fs, bandpass=[]):
+
+    curr_template = template_dict[coord][coord]
+    ## need to roll this template to start at zero or else we will have an offset
+    nsamp_before = np.where(np.abs(curr_template)>0)[0][0]
+    curr_template = np.roll(curr_template,-nsamp_before)
+    Npts = len(data[:,coords_dict[coord]])
+    ## zero pad the current_template
+    curr_template = np.hstack((curr_template, np.zeros(Npts-len(curr_template))))
+    stilde = np.conjugate(np.fft.rfft(curr_template))
+    sfreq = np.fft.rfftfreq(len(curr_template),d=1/fs)
+    J = np.interp(sfreq, noise_dict[coord]['freq'], noise_dict[coord]['J'])
+    prefac = stilde/J
+    curr_pos_data = data[:,coords_dict[coord]]
+    xtilde = np.fft.rfft(curr_pos_data)
+    corr_data = np.fft.irfft(prefac * xtilde)
+
+    if(len(bandpass)>0):
+        bp = 'bandpass' if len(bandpass)==2 else 'lowpass'
+        fc_x = np.array(bandpass)/(fs/2)
+        b_x,a_x = sp.butter(3, fc_x, btype=bp)
+        corr_data = sp.filtfilt(b_x, a_x, corr_data)
+
+    return corr_data
+
+
+def pulse_recon(step_params, res_params, template_dict, noise_dict, bandpass=[]):
 
     coord_list = ['x', 'y', 'z']
 
-    pulse_wind = 2
+    pulse_wind = 0.5
     pulse_time = step_params['x_time']
 
     ## function to take a second pass at reconstructing the steps
@@ -2657,28 +2800,46 @@ def pulse_recon(step_params, res_params):
         gamma = res_params[coord][coord][2]/(2*np.pi)
 
         if(coord in ['x', 'y']):
-            fc_x = np.array([f0-3*gamma, f0+3*gamma])/nyquist
+            fc_x = np.array([5, 70])/nyquist
         else:
             fc_x = np.array([100, 500])/nyquist           
         
         b_x, a_x = sp.butter(3, fc_x, btype='bandpass')
         x_filt = sp.filtfilt(b_x, a_x, cdat[:,x_idx])
 
-        pars = [res_params[coord][coord][1], res_params[coord][coord][2]]
-        #filt_freqs = [10, f0/2]
-        if(coord in ['x', 'y']):
-            filt_freqs = [10, f0/2+gamma]
-        force = position_to_force(cdat[:,x_idx+j], pars, attr['Fsamp'], filt_freqs)
+        if(coord=='x'):
+            bandpass = [5,30]
+        elif(coord=='y'):
+            bandpass = [5, 50]
+        elif(coord=='z'):
+            bandpass = [100, 200]
+
+        filt_data = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=bandpass)
+        filt_data_unfilt = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=[])        
+
+        b_lp, a_lp = sp.butter(3, np.array([1,20])/nyquist, btype='bandpass') ## optional low pass for opt filt
+        filt_data_filt = sp.filtfilt(b_lp, a_lp, np.abs(filt_data_unfilt))
+
 
         gpts = (tvec > pulse_time-pulse_wind) & (tvec < pulse_time+pulse_wind)
-        norm = np.max(np.abs(x_filt[gpts]))/np.max(np.abs(force[gpts]))
+        norm = np.max(np.abs(x_filt[gpts]))/np.max(np.abs(filt_data[gpts]))
 
         plt.subplot(4,1,1+j)
-        plt.plot(tvec, x_filt, 'k')
-        plt.plot(tvec, force*norm, 'r')
+        plt.plot(tvec, x_filt, 'orange')
+        plt.plot(tvec, filt_data*norm, 'gray')
+        plt.plot(tvec, filt_data_filt*norm, 'k')
+
         plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
-        ym = np.max(np.abs(x_filt[gpts]))
+        ym = np.max(np.abs(filt_data_filt[gpts]*norm))
         plt.ylim(-2*ym, 2*ym) 
         plt.plot([pulse_time, pulse_time], [-2*ym, 2*ym], 'b:')
     
+    fc_dr = np.array([106, 116])/nyquist
+    b_dr, a_dr = sp.butter(3, fc_dr, btype='bandpass')
+    drive_data = sp.filtfilt(b_dr, a_dr, cdat[:,x_idx])
+
+    plt.subplot(4,1,4)
+    plt.plot(tvec, drive_data, 'k')
+    plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+
     plt.show()
