@@ -1025,7 +1025,7 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
         off_key = str(impulse_amp) + "_offsets"
         filt_dict[off_key] = []
         
-        for fname in curr_files:
+        for j,fname in enumerate(curr_files):
             cdat, attr, _ = get_data(fname)
 
             xdata = cdat[:,x_idx]
@@ -1058,13 +1058,13 @@ def bandpass_filt(calib_dict, template_dict, time_offset = 0, bandpass=[], notch
             filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
             filt_dict[off_key] = np.hstack((filt_dict[off_key], idx_offsets))
 
-            if(make_plots):
+            if(make_plots and j==0):
                 sfac = cal_fac
                 plt.figure(figsize=(15,3))
                 plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx])*cal_fac)
                 plt.plot(np.abs(xdata)*sfac)
                 plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
-                plt.xlim(0,3e5)
+                plt.xlim(0,1e5)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
                 plt.ylim(0,500)
                 plt.title(impulse_amp)
@@ -1381,13 +1381,17 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
 
             if(do_lp_filt):
                 if(coord == 'x'):
-                    ff = 50
+                    ff = [50]
                 elif(coord == 'y'):
-                    ff = 300
+                    ff = [200]
                 elif(coord == 'z'):
-                    ff = 500
-                
-                b_lp, a_lp = sp.butter(3, ff/nyquist, btype='lowpass') ## optional low pass for opt filt
+                    ff = [500]
+
+                if(len(ff)==1):
+                    b_lp, a_lp = sp.butter(3, ff/nyquist, btype='lowpass') ## optional low pass for opt filt
+                else:
+                    b_lp, a_lp = sp.butter(3, ff/nyquist, btype='bandpass')
+                    
                 corr_data = sp.filtfilt(b_lp, a_lp, corr_data)
 
             impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
@@ -2779,11 +2783,11 @@ def compute_opt_filt(data, coord, template_dict, noise_dict, fs, bandpass=[]):
     return corr_data
 
 
-def pulse_recon(step_params, res_params, template_dict, noise_dict, bandpass=[]):
+def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs = [1,1], do_bandpass=False, sigma=[1,1,1]):
 
     coord_list = ['x', 'y', 'z']
 
-    pulse_wind = 0.5
+    pulse_wind = 0.3
     pulse_time = step_params['x_time']
 
     ## function to take a second pass at reconstructing the steps
@@ -2793,7 +2797,15 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, bandpass=[])
 
     nyquist = attr['Fsamp']/2
 
-    plt.figure(figsize=(12,10))
+    plt.figure(figsize=(8,10))
+
+    coord_data = np.zeros((3, len(cdat[:,0])))
+
+    opt_waveforms = {}
+
+    coord_labs_pos = ['X pos. [nm]', 'Y pos. [nm]', 'Z pos. [nm]', 'Charge [$e$]']
+    coord_labs_in = ['$A_x$ [MeV]', '$A_y$ [MeV]', '$A_z$ [MeV]', 'Charge [$e$]']
+    renorm = 2 # rescale after lp filt
 
     for j, coord in enumerate(coord_list):
         f0 = res_params[coord][coord][1]/(2*np.pi)
@@ -2805,14 +2817,17 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, bandpass=[])
             fc_x = np.array([100, 500])/nyquist           
         
         b_x, a_x = sp.butter(3, fc_x, btype='bandpass')
-        x_filt = sp.filtfilt(b_x, a_x, cdat[:,x_idx])
+        x_filt = sp.filtfilt(b_x, a_x, cdat[:,x_idx+j])
 
-        if(coord=='x'):
-            bandpass = [5,30]
-        elif(coord=='y'):
-            bandpass = [5, 50]
-        elif(coord=='z'):
-            bandpass = [100, 200]
+        if(do_bandpass):
+            if(coord=='x'):
+                bandpass = [50]
+            elif(coord=='y'):
+                bandpass = [200]
+            elif(coord=='z'):
+                bandpass = [500]
+        else:
+            bandpass = []
 
         filt_data = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=bandpass)
         filt_data_unfilt = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=[])        
@@ -2822,24 +2837,70 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, bandpass=[])
 
 
         gpts = (tvec > pulse_time-pulse_wind) & (tvec < pulse_time+pulse_wind)
-        norm = np.max(np.abs(x_filt[gpts]))/np.max(np.abs(filt_data[gpts]))
+        norm = amp_cal_facs[1][j]
 
-        plt.subplot(4,1,1+j)
-        plt.plot(tvec, x_filt, 'orange')
+        plt.subplot(5,1,1+j)
         plt.plot(tvec, filt_data*norm, 'gray')
-        plt.plot(tvec, filt_data_filt*norm, 'k')
+        #plt.plot(tvec, np.abs(filt_data*norm), 'gray')
+        plt.plot(tvec, filt_data_filt*norm*renorm, 'k')
+        ax1 = plt.gca()
+        ax2 = plt.twinx()
+        ax2.plot(tvec, x_filt/amp_cal_facs[0][coord] * 1e9, 'orange')
+        ax2.set_ylim([-20,40])
+        ax2.set_ylabel(coord_labs_pos[j])
+        opt_waveforms[coord] = filt_data*norm
 
+        plt.sca(ax1)
         plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
-        ym = np.max(np.abs(filt_data_filt[gpts]*norm))
-        plt.ylim(-2*ym, 2*ym) 
-        plt.plot([pulse_time, pulse_time], [-2*ym, 2*ym], 'b:')
+        ym = 350 #np.max(np.abs(filt_data_filt[gpts]*norm))*2
+        plt.ylim(-ym, ym) 
+        plt.ylabel(coord_labs_in[j])
+
+        print(sigma[j])
+        coord_data[j,:] = filt_data * norm * 1/(sigma[j])
     
-    fc_dr = np.array([106, 116])/nyquist
+    print(coord_data[:,:10])
+    print(np.shape(np.sqrt(np.sum(coord_data**2, axis=0))))
+
+    plt.subplot(5,1,4)
+    sigma = np.array(sigma)
+    norm2 = np.sum(1/sigma**2)
+    print(norm2)
+    sum_coord = np.sqrt(np.sum(coord_data**2, axis=0)/norm2)
+    plt.plot(tvec, sum_coord, 'k')
+    lp_sum_coord = sp.filtfilt(b_lp, a_lp, sum_coord)
+    gpts = (tvec > pulse_time-pulse_wind) & (tvec < pulse_time+pulse_wind)
+    max_location_wind = np.argmax(lp_sum_coord[gpts]*sum_coord[gpts])
+    max_idx_overall = np.where(gpts)[0][0] + max_location_wind
+    max_loc_overall = tvec[max_idx_overall]
+
+
+    plt.plot(tvec, lp_sum_coord * renorm, 'r')
+    plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+    plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
+    plt.ylim(-100, ym)
+    plt.ylabel(r'$|\vec{A}|$ [MeV]')
+
+    ## now go back through and get the amplitudes
+    for j, coord in enumerate(coord_list):
+        plt.subplot(5,1,1+j)
+        plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
+        plt.plot(max_loc_overall, opt_waveforms[coord][max_idx_overall], 'bo', label='%.1f MeV'%opt_waveforms[coord][max_idx_overall])
+        plt.ylim(-ym, ym) 
+        plt.legend()
+
+    fc_dr = np.array([104, 118])/nyquist
     b_dr, a_dr = sp.butter(3, fc_dr, btype='bandpass')
     drive_data = sp.filtfilt(b_dr, a_dr, cdat[:,x_idx])
 
-    plt.subplot(4,1,4)
+    plt.subplot(5,1,5)
+    plt.plot(tvec, sp.filtfilt(b_dr, a_dr, cdat[:, drive_idx]), 'gray')
     plt.plot(tvec, drive_data, 'k')
     plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+    yy = plt.ylim()
+    plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
+    plt.ylim(yy)
+    plt.ylabel("Charge drive [arb. units]")
+    plt.xlabel("Time [s]")
 
     plt.show()
