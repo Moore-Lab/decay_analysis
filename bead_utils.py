@@ -2788,6 +2788,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     coord_list = ['x', 'y', 'z']
 
     pulse_wind = 0.3
+    search_wind = 0.05
     pulse_time = step_params['x_time']
 
     ## function to take a second pass at reconstructing the steps
@@ -2797,7 +2798,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
 
     nyquist = attr['Fsamp']/2
 
-    plt.figure(figsize=(8,10))
+    fig=plt.figure(figsize=(8,10))
 
     coord_data = np.zeros((3, len(cdat[:,0])))
 
@@ -2856,20 +2857,15 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         plt.ylim(-ym, ym) 
         plt.ylabel(coord_labs_in[j])
 
-        print(sigma[j])
         coord_data[j,:] = filt_data * norm * 1/(sigma[j])
-    
-    print(coord_data[:,:10])
-    print(np.shape(np.sqrt(np.sum(coord_data**2, axis=0))))
 
     plt.subplot(5,1,4)
     sigma = np.array(sigma)
     norm2 = np.sum(1/sigma**2)
-    print(norm2)
     sum_coord = np.sqrt(np.sum(coord_data**2, axis=0)/norm2)
     plt.plot(tvec, sum_coord, 'k')
     lp_sum_coord = sp.filtfilt(b_lp, a_lp, sum_coord)
-    gpts = (tvec > pulse_time-pulse_wind) & (tvec < pulse_time+pulse_wind)
+    gpts = (tvec > pulse_time-search_wind) & (tvec < pulse_time+search_wind)
     max_location_wind = np.argmax(lp_sum_coord[gpts]*sum_coord[gpts])
     max_idx_overall = np.where(gpts)[0][0] + max_location_wind
     max_loc_overall = tvec[max_idx_overall]
@@ -2877,30 +2873,45 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
 
     plt.plot(tvec, lp_sum_coord * renorm, 'r')
     plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+    ym = np.max([350, 1.5*np.abs(sum_coord[max_idx_overall])])
     plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
     plt.ylim(-100, ym)
     plt.ylabel(r'$|\vec{A}|$ [MeV]')
 
+    refined_OF_amps = []
     ## now go back through and get the amplitudes
     for j, coord in enumerate(coord_list):
         plt.subplot(5,1,1+j)
         plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
-        plt.plot(max_loc_overall, opt_waveforms[coord][max_idx_overall], 'bo', label='%.1f MeV'%opt_waveforms[coord][max_idx_overall])
+        max_val = opt_waveforms[coord][max_idx_overall]
+        plt.plot(max_loc_overall, max_val, 'bo', label='%.1f MeV'%max_val)
+        ym = np.max([350, 1.5*np.abs(max_val)])
         plt.ylim(-ym, ym) 
         plt.legend()
+        
+        refined_OF_amps.append(max_val)
 
     fc_dr = np.array([104, 118])/nyquist
     b_dr, a_dr = sp.butter(3, fc_dr, btype='bandpass')
     drive_data = sp.filtfilt(b_dr, a_dr, cdat[:,x_idx])
 
     plt.subplot(5,1,5)
-    plt.plot(tvec, sp.filtfilt(b_dr, a_dr, cdat[:, drive_idx]), 'gray')
-    plt.plot(tvec, drive_data, 'k')
+    plt.plot(step_params['t_fine'], step_params['charge_fine'], 'r')
+    plt.ylabel("Charge [$e$]")
+    ax2 = plt.twinx()
+    ax2.plot(tvec, sp.filtfilt(b_dr, a_dr, cdat[:, drive_idx]), 'gray')
+    ax2.plot(tvec, drive_data, 'k')
+    ax2.set_ylabel("Charge drive [arb. units]")
     plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
     yy = plt.ylim()
     plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
     plt.ylim(yy)
-    plt.ylabel("Charge drive [arb. units]")
+
     plt.xlabel("Time [s]")
 
-    plt.show()
+    plt.subplot(5,1,1)
+    plt.title(step_params['filename'])
+
+    step_params['refined_OF_amps'] = refined_OF_amps
+
+    return step_params, fig
