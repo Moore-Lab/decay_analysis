@@ -1969,22 +1969,23 @@ def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], driv
 def calc_expected_spectrum(noise_vals, make_plots=False, docut=False):
     ## plots of expected spectrum vs D.O.F.
     ## what is the expected distribution of amplitudes projected onto x:
-    npts = int(1e6)
+    npts = int(1e7)
     phi = 2*np.pi*np.random.rand(npts)
     theta = np.arccos(2*np.random.rand(npts)-1)
 
     ## beta, Po212, Bi212
     decay_momenta = [0, 265, 220] ## MeV
-    branching_fractions = [0.58, 0.27, 0.15] ## fraction of decays
+    branching_fractions = [0, 0.27, 0.15] ## fraction of decays  # beta was 0.58
     labels = [r'$\beta$', '$^{212}$Po', '$^{212}$Bi']
 
     ndof = [1,2,3]
     epdf_ndof = []
+    epdf_1 = []
 
     if(make_plots):
         plt.figure(figsize=(15,4))
     for k,nd in enumerate(ndof):
-        bins = np.linspace(0, 500, 500)
+        bins = np.linspace(0, 500, 100)
         htot = np.zeros(len(bins)-1)
         hlist = []
         for j,dm in enumerate(decay_momenta):
@@ -2015,6 +2016,10 @@ def calc_expected_spectrum(noise_vals, make_plots=False, docut=False):
             hlist.append(branching_fractions[j]*hh)
             htot += branching_fractions[j]*hh
 
+            if(nd==1):
+                epdf_1.append(hh)
+
+
         norm = np.sum(htot)
         htot /= norm
 
@@ -2038,7 +2043,7 @@ def calc_expected_spectrum(noise_vals, make_plots=False, docut=False):
         exp_pdf = htot
         epdf_ndof.append(exp_pdf)
 
-    return exp_bins, epdf_ndof
+    return exp_bins, epdf_ndof, epdf_1
 
 def get_edges_from_livetime_vec(live_vec, time_hours, dp_edges_orig):
     ## take a boolean vector with livetimes and return the edges of cut out windows
@@ -2788,7 +2793,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     coord_list = ['x', 'y', 'z']
 
     pulse_wind = 0.3
-    search_wind = 0.05
+    search_wind = 0.01 #0.05
     pulse_time = step_params['x_time']
     prepulse_samps = 2**13 ## 800 ms
 
@@ -2873,18 +2878,30 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     plt.plot(tvec, sum_coord, 'k')
     lp_sum_coord = sp.filtfilt(b_lp, a_lp, sum_coord)
     gpts = (tvec > pulse_time-search_wind) & (tvec < pulse_time+search_wind)
-    max_location_wind = np.argmax(lp_sum_coord[gpts]*sum_coord[gpts])
+    max_location_wind = np.argmax(np.abs(lp_sum_coord[gpts]*sum_coord[gpts]))
     max_idx_overall = np.where(gpts)[0][0] + max_location_wind
     max_loc_overall = tvec[max_idx_overall]
 
     #search also in 100 random places in the waveform
-    rand_locs = np.random.rand(100)*len(sum_coord)
+    rand_locs = np.random.rand(1000)*len(sum_coord)
     rand_idxs = []
     for rl in rand_locs:
         gpts = (tvec > tvec[int(rl)]-search_wind) & (tvec < tvec[int(rl)]+search_wind)
-        rand_location_wind = np.argmax(lp_sum_coord[gpts]*sum_coord[gpts])
+        if(np.sum(gpts)<1.9*search_wind*attr['Fsamp']):
+            continue
+        rand_location_wind = np.argmax(np.abs(lp_sum_coord[gpts]*sum_coord[gpts]))
         rand_idx_overall = np.where(gpts)[0][0] + rand_location_wind
         rand_idxs.append(rand_idx_overall)
+
+    # plt.close('all')
+    # fig=plt.figure(figsize=(12,4))
+    # plt.plot(tvec, opt_waveforms['x'])
+    # yy = plt.ylim()
+    # plt.plot(tvec, lp_sum_coord*sum_coord/20)
+    # plt.plot(tvec[rand_idxs], opt_waveforms['x'][rand_idxs], 'ro')
+    # plt.xlim(1,2)
+    # plt.ylim(-50, 50)
+    # plt.show()
 
     plt.plot(tvec, lp_sum_coord * renorm, 'r')
     plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
