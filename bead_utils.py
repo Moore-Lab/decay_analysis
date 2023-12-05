@@ -2790,6 +2790,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     pulse_wind = 0.3
     search_wind = 0.05
     pulse_time = step_params['x_time']
+    prepulse_samps = 2**13 ## 800 ms
 
     ## function to take a second pass at reconstructing the steps
     
@@ -2808,6 +2809,8 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     coord_labs_pos = ['X pos. [nm]', 'Y pos. [nm]', 'Z pos. [nm]', 'Charge [$e$]']
     coord_labs_in = ['$A_x$ [MeV]', '$A_y$ [MeV]', '$A_z$ [MeV]', 'Charge [$e$]']
     renorm = 2 # rescale after lp filt
+
+    random_recon = {}
 
     right_ax_list = []
     for j, coord in enumerate(coord_list):
@@ -2856,7 +2859,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         right_ax_list.append(ax2)
 
         plt.sca(ax1)
-        plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+        plt.xlim(pulse_time-pulse_wind-prepulse_samps/attr['Fsamp'], pulse_time+pulse_wind)
         ym = 350 #np.max(np.abs(filt_data_filt[gpts]*norm))*2
         plt.ylim(-ym, ym) 
         plt.ylabel(coord_labs_in[j])
@@ -2874,6 +2877,14 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     max_idx_overall = np.where(gpts)[0][0] + max_location_wind
     max_loc_overall = tvec[max_idx_overall]
 
+    #search also in 100 random places in the waveform
+    rand_locs = np.random.rand(100)*len(sum_coord)
+    rand_idxs = []
+    for rl in rand_locs:
+        gpts = (tvec > tvec[int(rl)]-search_wind) & (tvec < tvec[int(rl)]+search_wind)
+        rand_location_wind = np.argmax(lp_sum_coord[gpts]*sum_coord[gpts])
+        rand_idx_overall = np.where(gpts)[0][0] + rand_location_wind
+        rand_idxs.append(rand_idx_overall)
 
     plt.plot(tvec, lp_sum_coord * renorm, 'r')
     plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
@@ -2887,11 +2898,10 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     ## now go back through and get the amplitudes and prepulse
 
     buff_samps = int(search_wind*attr['Fsamp'])
-    prepulse_samps = 2**13 ## 800 ms
-    st, en = max_idx_overall-buff_samps-prepulse_samps, max_idx_overall-buff_samps
     prepulse_wfs = []
     prepulse_psds = []
     prepulse_rms = []
+    prepulse_pos_rms = []
 
     search_samps_pos = int(0.02*attr['Fsamp']) ## 10 ms
 
@@ -2904,17 +2914,24 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         plt.ylim(-ym, ym) 
         plt.legend()
 
+        rand_amps = []
+        for ridx in rand_idxs:
+            rand_amps.append(opt_waveforms[coord][ridx])
+
         st, en = int(max_idx_overall-search_samps_pos), int(max_idx_overall+search_samps_pos)
         max_pos_loc = st + np.argmax(np.abs(filt_waveforms[coord][st:en]))
         max_pos = filt_waveforms[coord][max_pos_loc]
         right_ax_list[j].plot(tvec[max_pos_loc], max_pos, 'o', color='orange', label='%.1f nm'%max_pos)
         refined_bandpass_amps.append(max_pos)
 
+        st, en = max_idx_overall-buff_samps-prepulse_samps, max_idx_overall-buff_samps
         refined_OF_amps.append(max_val)
         prepulse_wfs.append(opt_waveforms[coord][st:en])
         freqs, psd = sp.welch(opt_waveforms[coord][st:en], fs=attr['Fsamp'], nperseg=prepulse_samps)
         prepulse_psds.append(psd)
         prepulse_rms.append(np.std(opt_waveforms[coord][st:en]))
+        prepulse_pos_rms.append(np.std(filt_waveforms[coord][st:en]))
+        random_recon[coord] = rand_amps
 
     prepulse_psd_freq = freqs
 
@@ -2945,5 +2962,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     step_params['prepulse_psds'] = prepulse_psds
     step_params['prepulse_psd_freq'] = prepulse_psd_freq
     step_params['prepulse_rms'] = prepulse_rms
+    step_params['prepulse_pos_rms'] = prepulse_rms
+    step_params['random_recon'] = random_recon
 
     return step_params, fig
