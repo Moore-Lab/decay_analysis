@@ -1426,7 +1426,7 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 plt.plot(tvec[corr_idx], np.array(corr_vals)*sfac, 'ro')
                 plt.xlim(0, 2)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(-50,np.median(np.abs(corr_vals)*sfac)*2)
+                plt.ylim(-50,np.max([250,np.median(np.abs(corr_vals)*sfac)*2]))
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict
@@ -2251,7 +2251,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     coarse_diff[0:10] = 0 ## throw out edge effects
     coarse_diff[-10:] = 0
 
-    if( xrange[0] < 0):
+    if( xrange[0] < 0 and xrange[1] < 0):
         charge_change_idx = np.argmax(np.abs(coarse_diff))
 
         cent = tvec[coarse_points][charge_change_idx]
@@ -2803,11 +2803,13 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     coord_data = np.zeros((3, len(cdat[:,0])))
 
     opt_waveforms = {}
+    filt_waveforms = {}
 
     coord_labs_pos = ['X pos. [nm]', 'Y pos. [nm]', 'Z pos. [nm]', 'Charge [$e$]']
     coord_labs_in = ['$A_x$ [MeV]', '$A_y$ [MeV]', '$A_z$ [MeV]', 'Charge [$e$]']
     renorm = 2 # rescale after lp filt
 
+    right_ax_list = []
     for j, coord in enumerate(coord_list):
         f0 = res_params[coord][coord][1]/(2*np.pi)
         gamma = res_params[coord][coord][2]/(2*np.pi)
@@ -2850,6 +2852,8 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         ax2.set_ylim([-20,40])
         ax2.set_ylabel(coord_labs_pos[j])
         opt_waveforms[coord] = filt_data*norm
+        filt_waveforms[coord] = x_filt/amp_cal_facs[0][coord] * 1e9
+        right_ax_list.append(ax2)
 
         plt.sca(ax1)
         plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
@@ -2879,7 +2883,18 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     plt.ylabel(r'$|\vec{A}|$ [MeV]')
 
     refined_OF_amps = []
-    ## now go back through and get the amplitudes
+    refined_bandpass_amps = []
+    ## now go back through and get the amplitudes and prepulse
+
+    buff_samps = int(search_wind*attr['Fsamp'])
+    prepulse_samps = 2**13 ## 800 ms
+    st, en = max_idx_overall-buff_samps-prepulse_samps, max_idx_overall-buff_samps
+    prepulse_wfs = []
+    prepulse_psds = []
+    prepulse_rms = []
+
+    search_samps_pos = int(0.02*attr['Fsamp']) ## 10 ms
+
     for j, coord in enumerate(coord_list):
         plt.subplot(5,1,1+j)
         plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
@@ -2888,8 +2903,20 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         ym = np.max([350, 1.5*np.abs(max_val)])
         plt.ylim(-ym, ym) 
         plt.legend()
-        
+
+        st, en = int(max_idx_overall-search_samps_pos), int(max_idx_overall+search_samps_pos)
+        max_pos_loc = st + np.argmax(np.abs(filt_waveforms[coord][st:en]))
+        max_pos = filt_waveforms[coord][max_pos_loc]
+        right_ax_list[j].plot(tvec[max_pos_loc], max_pos, 'o', color='orange', label='%.1f nm'%max_pos)
+        refined_bandpass_amps.append(max_pos)
+
         refined_OF_amps.append(max_val)
+        prepulse_wfs.append(opt_waveforms[coord][st:en])
+        freqs, psd = sp.welch(opt_waveforms[coord][st:en], fs=attr['Fsamp'], nperseg=prepulse_samps)
+        prepulse_psds.append(psd)
+        prepulse_rms.append(np.std(opt_waveforms[coord][st:en]))
+
+    prepulse_psd_freq = freqs
 
     fc_dr = np.array([104, 118])/nyquist
     b_dr, a_dr = sp.butter(3, fc_dr, btype='bandpass')
@@ -2913,5 +2940,10 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     plt.title(step_params['filename'])
 
     step_params['refined_OF_amps'] = refined_OF_amps
+    step_params['refined_bandpass_amps'] = refined_bandpass_amps
+    step_params['prepulse_wfs'] = prepulse_wfs
+    step_params['prepulse_psds'] = prepulse_psds
+    step_params['prepulse_psd_freq'] = prepulse_psd_freq
+    step_params['prepulse_rms'] = prepulse_rms
 
     return step_params, fig
