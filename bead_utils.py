@@ -2787,12 +2787,32 @@ def compute_opt_filt(data, coord, template_dict, noise_dict, fs, bandpass=[]):
 
     return corr_data
 
+def get_drive(data, fs, drive_idx=drive_idx):
+    
+    ## fit the drive times two scalings
+    ddata = data[:,drive_idx]
+    ddata -= np.mean(ddata)
+    ddata = ddata/np.max(ddata)
+    ddata_tilde = np.fft.rfft(ddata)
+    fvec = np.fft.rfftfreq(len(ddata), d=1/fs)
+    gpts = (fvec > 65) & (fvec < 500) ## search only reasonable range for drive, skip 60 Hz
+    pmax = 1.0*np.abs(ddata_tilde)**2
+    pmax[~gpts] = 0
+    drive_idx = np.argmax(pmax)
+    svec_tilde = np.zeros_like(ddata_tilde)
+    freq_wind = 1000 ## filter around drive peak
+    svec_tilde[(drive_idx-freq_wind):(drive_idx+freq_wind)] = ddata_tilde[(drive_idx-freq_wind):(drive_idx+freq_wind)]
+    svec = np.fft.irfft(svec_tilde)
+    omega_vec = 2*np.pi*fvec
+
+    return svec, omega_vec
+
 
 def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs = [1,1], do_bandpass=False, sigma=[1,1,1]):
 
     coord_list = ['x', 'y', 'z']
 
-    pulse_wind = 0.3
+    pulse_wind = 1
     search_wind = 0.01 #0.05
     pulse_time = step_params['x_time']
     prepulse_samps = 2**13 ## 800 ms
@@ -2804,7 +2824,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
 
     nyquist = attr['Fsamp']/2
 
-    fig=plt.figure(figsize=(8,10))
+    fig=plt.figure(figsize=(20,12))
 
     coord_data = np.zeros((3, len(cdat[:,0])))
 
@@ -2850,7 +2870,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         gpts = (tvec > pulse_time-pulse_wind) & (tvec < pulse_time+pulse_wind)
         norm = amp_cal_facs[1][j]
 
-        plt.subplot(5,1,1+j)
+        plt.subplot(6,1,1+j)
         plt.plot(tvec, filt_data*norm, 'gray')
         #plt.plot(tvec, np.abs(filt_data*norm), 'gray')
         plt.plot(tvec, filt_data_filt*norm*renorm, 'k')
@@ -2864,14 +2884,14 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         right_ax_list.append(ax2)
 
         plt.sca(ax1)
-        plt.xlim(pulse_time-pulse_wind-prepulse_samps/attr['Fsamp'], pulse_time+pulse_wind)
+        plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
         ym = 350 #np.max(np.abs(filt_data_filt[gpts]*norm))*2
         plt.ylim(-ym, ym) 
         plt.ylabel(coord_labs_in[j])
 
         coord_data[j,:] = filt_data * norm * 1/(sigma[j])
 
-    plt.subplot(5,1,4)
+    plt.subplot(6,1,4)
     sigma = np.array(sigma)
     norm2 = np.sum(1/sigma**2)
     sum_coord = np.sqrt(np.sum(coord_data**2, axis=0)/norm2)
@@ -2893,15 +2913,16 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         rand_idx_overall = np.where(gpts)[0][0] + rand_location_wind
         rand_idxs.append(rand_idx_overall)
 
-    # plt.close('all')
-    # fig=plt.figure(figsize=(12,4))
-    # plt.plot(tvec, opt_waveforms['x'])
+    #plt.close('all')
+    #fig=plt.figure(figsize=(12,4))
+    #plt.psd(sp.filtfilt(bex, aex, cdat[:,x_idx]), Fs=attr['Fsamp'], NFFT=2**14)
+    #plt.xlim(0,100)
     # yy = plt.ylim()
     # plt.plot(tvec, lp_sum_coord*sum_coord/20)
     # plt.plot(tvec[rand_idxs], opt_waveforms['x'][rand_idxs], 'ro')
     # plt.xlim(1,2)
     # plt.ylim(-50, 50)
-    # plt.show()
+    #plt.show()
 
     plt.plot(tvec, lp_sum_coord * renorm, 'r')
     plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
@@ -2923,7 +2944,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     search_samps_pos = int(0.02*attr['Fsamp']) ## 10 ms
 
     for j, coord in enumerate(coord_list):
-        plt.subplot(5,1,1+j)
+        plt.subplot(6,1,1+j)
         plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
         max_val = opt_waveforms[coord][max_idx_overall]
         plt.plot(max_loc_overall, max_val, 'bo', label='%.1f MeV'%max_val)
@@ -2950,27 +2971,56 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
         prepulse_pos_rms.append(np.std(filt_waveforms[coord][st:en]))
         random_recon[coord] = rand_amps
 
-    prepulse_psd_freq = freqs
+    ## now do the subtraction for x
+    omega0, gamma = res_params['x']['x'][1], res_params['x']['x'][2]
+    amp_before, amp_after = step_params['charge_before'], step_params['charge_after']
+    svec, omega_vec = get_drive(cdat, attr['Fsamp'], drive_idx=drive_idx)
+    Nvec = np.arange(len(cdat[:,drive_idx])) > max_idx_overall
+    drive_resp = stepped_sine_response(amp_before, amp_after, svec, omega0, gamma, omega_vec, Nvec)
+    edge_buff = 2000
+    amp = np.sum(drive_resp[edge_buff:-edge_buff] * cdat[edge_buff:-edge_buff,x_idx])/np.sum(drive_resp[edge_buff:-edge_buff]**2)
 
     fc_dr = np.array([104, 118])/nyquist
     b_dr, a_dr = sp.butter(3, fc_dr, btype='bandpass')
     drive_data = sp.filtfilt(b_dr, a_dr, cdat[:,x_idx])
 
-    plt.subplot(5,1,5)
+    plt.subplot(6,1,6)
+    plt.plot(tvec, amp*drive_resp, 'r')
+    plt.plot(tvec, drive_data, 'k')
+    plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+
+    ## now plot subtracted waveforms
+    plt.subplot(6,1,1)
+    cdat[:,x_idx] -= amp*drive_resp
+    coord, bandpass = 'x', [50]
+    norm = amp_cal_facs[1][0]
+    filt_data_sub = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=bandpass)
+    plt.plot(tvec, filt_data_sub*norm, 'cyan', zorder=0)
+    max_val_sub = filt_data_sub[max_idx_overall]*norm
+    plt.plot(tvec[max_idx_overall], max_val_sub, 'o', color='cyan', zorder=0, label='%.1f MeV'%max_val_sub)
+    step_params['refined_x_amp_sub'] = max_val_sub
+    plt.gca().set_zorder(ax2.get_zorder()+1)
+    plt.gca().set_frame_on(False)
+    plt.legend()
+
+    prepulse_psd_freq = freqs
+
+
+    plt.subplot(6,1,5)
     plt.plot(step_params['t_fine'], step_params['charge_fine'], 'r')
     plt.ylabel("Charge [$e$]")
     ax2 = plt.twinx()
     ax2.plot(tvec, sp.filtfilt(b_dr, a_dr, cdat[:, drive_idx]), 'gray')
     ax2.plot(tvec, drive_data, 'k')
     ax2.set_ylabel("Charge drive [arb. units]")
-    plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+    #plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
     yy = plt.ylim()
     plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
     plt.ylim(yy)
 
     plt.xlabel("Time [s]")
 
-    plt.subplot(5,1,1)
+    plt.subplot(6,1,1)
     plt.title(step_params['filename'])
 
     step_params['refined_OF_amps'] = refined_OF_amps
