@@ -1969,7 +1969,7 @@ def plot_step_with_alphas(data, attributes, xrange=[-1,-1], cal_facs=[1,1], driv
 def calc_expected_spectrum(noise_vals, make_plots=False, docut=False):
     ## plots of expected spectrum vs D.O.F.
     ## what is the expected distribution of amplitudes projected onto x:
-    npts = int(1e7)
+    npts = int(1e6)
     phi = 2*np.pi*np.random.rand(npts)
     theta = np.arccos(2*np.random.rand(npts)-1)
 
@@ -3013,7 +3013,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     ax2.plot(tvec, sp.filtfilt(b_dr, a_dr, cdat[:, drive_idx]), 'gray')
     ax2.plot(tvec, drive_data, 'k')
     ax2.set_ylabel("Charge drive [arb. units]")
-    #plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+    plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
     yy = plt.ylim()
     plt.plot([max_loc_overall, max_loc_overall], [-2*ym, 2*ym], 'b:')
     plt.ylim(yy)
