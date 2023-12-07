@@ -2991,10 +2991,15 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     b_dr, a_dr = sp.butter(3, fc_dr, btype='bandpass')
     drive_data = sp.filtfilt(b_dr, a_dr, cdat[:,x_idx])
 
+
+    position_calib_x = 1e9/amp_cal_facs[0][coord]
     plt.subplot(6,1,6)
-    plt.plot(tvec, amp*drive_resp, 'r')
-    plt.plot(tvec, drive_data, 'k')
+    plt.plot(tvec, amp*drive_resp*position_calib_x, 'r', label='Pred. response')
+    plt.plot(tvec, drive_data*position_calib_x, 'k', label='Data (filt)')
     plt.xlim(pulse_time-pulse_wind, pulse_time+pulse_wind)
+    #plt.ylim(-20, 20)
+    plt.ylabel("Response at\ndrive freq. [nm]")
+    plt.legend()
 
     ## now plot subtracted waveforms
     plt.subplot(6,1,1)
@@ -3011,7 +3016,6 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     plt.legend()
 
     prepulse_psd_freq = freqs
-
 
     plt.subplot(6,1,5)
     plt.plot(step_params['t_fine'], step_params['charge_fine'], 'r')
