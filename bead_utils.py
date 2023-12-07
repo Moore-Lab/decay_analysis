@@ -1411,13 +1411,19 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 idx_offsets.append( np.argmax(current_search) - wind)
             filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
             filt_dict[off_key] = np.hstack((filt_dict[off_key], idx_offsets))
+            
+            if(len(corr_vals)==0):
+                print("No impulses found for file: %s"%fname)
+                continue
 
             if(make_plots and fnidx==0):
+                corr_vals = np.array(corr_vals)
                 tvec = np.arange(Npts)/attr['Fsamp']
                 fstr = str.split(fname,'/')[-1]
                 sfac = cal_fac
                 plt.figure(figsize=(15,3))
-                nfac = 1/np.max(cdat[:,drive_dict[coord]])
+                gpts = ~np.isnan(cdat[:,drive_dict[coord]])
+                nfac = 1/np.max(cdat[gpts,drive_dict[coord]])
                 plt.plot(tvec, cdat[:,drive_dict[coord]]*nfac * 250)
                 #plt.plot(tvec[impulse_cent], cdat[impulse_cent,drive_idx]*nfac, 'ro')
                 plt.plot(tvec, corr_data*sfac )
@@ -1426,7 +1432,8 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                 plt.plot(tvec[corr_idx], np.array(corr_vals)*sfac, 'ro')
                 plt.xlim(0, 2)
                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-                plt.ylim(-50,np.max([250,np.median(np.abs(corr_vals)*sfac)*2]))
+                gpts = ~np.isnan(corr_vals)
+                plt.ylim(-50,np.max([250, np.median(np.abs(corr_vals[gpts])*sfac)*2]))
                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
     return filt_dict
