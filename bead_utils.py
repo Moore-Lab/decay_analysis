@@ -2200,7 +2200,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, figsub=[],
                             plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fit_prepulse=False, 
-                            prepulse_fig=[], drive_freq=111, drive_wind=1, data_wind=7):
+                            prepulse_fig=[], drive_freq=111, drive_wind=1, data_wind=7, search_wind=0.1):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2574,7 +2574,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 max_vals = []
                 max_idxs = []
                 for ms,d in zip(markstyle, [opt_data, bp_data]):
-                    search_wind = 0.1 ## +/- 100 ms
+                    search_wind = search_wind ## +/- 100 ms
                     gpts = (tvec > cent -search_wind) & (tvec < cent+search_wind) & (d>0)
                     vec_for_max = 1.0*np.abs(d)
                     vec_for_max[~gpts] = 0  
