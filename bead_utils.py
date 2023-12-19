@@ -2910,7 +2910,7 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     max_loc_overall = tvec[max_idx_overall]
 
     #search also in 100 random places in the waveform
-    rand_locs = np.random.rand(1000)*len(sum_coord)
+    rand_locs = np.random.rand(100)*len(sum_coord)
     rand_idxs = []
     for rl in rand_locs:
         gpts = (tvec > tvec[int(rl)]-search_wind) & (tvec < tvec[int(rl)]+search_wind)
