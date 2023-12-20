@@ -370,9 +370,6 @@ def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal=
         res_pos = np.argmin( np.abs(omega0-omega) )
         pts = J[(res_pos-10):(res_pos+10)]/np.median(sphere_tf[(res_pos-10):(res_pos+10)])
         sphere_tf *= np.median(pts[pts>0])
-        print(res_pos)
-        #if(coord == 'z'):
-        #    sphere_tf *= 0.075
 
         ## now refit
         spars = [1, omega0, gamma]
@@ -383,7 +380,6 @@ def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal=
             sphere_tf_new = lorentz(omega, *bp)
         else:
             sphere_tf_new = lorentz(omega, omega0, gamma, 9e4)
-            #sphere_tf_new = sphere_tf * 0.05
 
         Jout = 1.0*J
         ## old signal to noise based version
@@ -395,7 +391,6 @@ def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal=
 
         plt.subplot(1,3,cidx+1)
         plt.semilogy(cf, np.sqrt(J), 'k') #, label="Measured")
-        #plt.semilogy(cf, np.sqrt(sphere_tf), "-", color='orange') #, label="Expected")
         plt.semilogy(cf, np.sqrt(sphere_tf_new), "-", color=colors_dict[coord][1]) #, label="Expected")
         plt.xlim(0,range_dict[coord][1])
         gpts = (cf > 1) & (cf<200)
