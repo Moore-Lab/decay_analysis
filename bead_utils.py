@@ -324,6 +324,94 @@ def get_noise_template_3D(noise_files, fit_vals, range_dict, nfft=-1):
     return noise_dict
 
 
+
+def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal={'x': 1, 'y': 1, 'z': 1}):
+    ## take noise files and find the average PSD for use in the optimal filter
+
+    colors_dict = {'x': ['darkblue', 'blue'], 'y': ['darkred', 'red'], 'z': ['k', 'orange']}
+
+    coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
+    noise_dict = {}
+
+    plt.figure(figsize=(12, 2.75))
+
+    for cidx, coord in enumerate(coords_dict.keys()):
+        noise_dict[coord] = {}
+        coord_idx = coords_dict[coord]
+        J = 0
+        nfiles = 0
+
+        res_pars = [fit_vals[coord][coord][1], fit_vals[coord][coord][2]]
+
+        for nidx, nf in enumerate(noise_files):
+            cdat, attr, _ = get_data(nf)
+
+            if(nfft < 0):
+                nfft_to_use = len(cdat[:,coord_idx])
+            else:
+                nfft_to_use = nfft
+
+            cf, cpsd = sp.welch(cdat[:,coord_idx]/cal[coord]*1e9, fs=attr['Fsamp'], nperseg=nfft_to_use)
+
+            if(nidx==0):
+                Jmat = cpsd
+            else:
+                Jmat = np.vstack((Jmat, cpsd))
+            nfiles += 1
+
+        J = np.median(Jmat, axis=0)
+
+        ## expected for resonator params
+        eta = 2*res_pars[1]/res_pars[0]
+        omega0 = res_pars[0]/np.sqrt(1 - eta**2) if eta < 1 else res_pars[0]
+        gamma = 2*res_pars[1] ## factor of two by definition
+        omega = 2*np.pi*cf
+        sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
+        res_pos = np.argmin( np.abs(omega0-omega) )
+        pts = J[(res_pos-10):(res_pos+10)]/np.median(sphere_tf[(res_pos-10):(res_pos+10)])
+        sphere_tf *= np.median(pts[pts>0])
+        print(res_pos)
+        #if(coord == 'z'):
+        #    sphere_tf *= 0.075
+
+        ## now refit
+        spars = [1, omega0, gamma]
+        if(coord in ['x', 'y']):
+            gpts = np.abs(omega - omega0) < 1.0*gamma
+            bp, bc = curve_fit(lorentz, omega[gpts], J[gpts], p0=spars)
+            print(bp[0]/(2*np.pi), bp[1]/(2*np.pi))
+            sphere_tf_new = lorentz(omega, *bp)
+        else:
+            sphere_tf_new = lorentz(omega, omega0, gamma, 9e4)
+            #sphere_tf_new = sphere_tf * 0.05
+
+        Jout = 1.0*J
+        ## old signal to noise based version
+        if(coord != 'z'):
+            Jout[J/sphere_tf > 20] = 1e20
+        ## just cut frequencies instead
+        bad_freqs = (cf < range_dict[coord][0]) | (cf > range_dict[coord][1])
+        Jout[bad_freqs] = 1e20
+
+        plt.subplot(1,3,cidx+1)
+        plt.semilogy(cf, np.sqrt(J), 'k') #, label="Measured")
+        #plt.semilogy(cf, np.sqrt(sphere_tf), "-", color='orange') #, label="Expected")
+        plt.semilogy(cf, np.sqrt(sphere_tf_new), "-", color=colors_dict[coord][1]) #, label="Expected")
+        plt.xlim(0,range_dict[coord][1])
+        gpts = (cf > 1) & (cf<200)
+        plt.ylim(ylim_dict[coord])
+        plt.xlabel("Frequency [Hz]")
+        if(cidx==0):
+            plt.ylabel("Position ASD [nm/$\sqrt{\mathrm{Hz}}$]")
+        #plt.legend(loc="upper right")
+        #plt.title("%s direction"%coord)
+
+        noise_dict[coord] = {"freq": cf, "J": Jout, "Jorig": J}
+        plt.subplots_adjust(wspace=0.25)
+    return noise_dict
+
+
+
 def plot_charge_steps(charge_vec):
     dt = []
     for j,t in enumerate(charge_vec[:,0]):
@@ -954,7 +1042,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
             bc = np.zeros((len(bp), len(bp)))
 
         fit_dict[coord][resp_coord] = impulse_response(tvec, *bp)
-        fit_vals[coord][resp_coord] = bp
+        fit_vals[coord][resp_coord] = [bp[0], bp[1], bp[2], bp[3], np.sqrt(bc[0,0]), np.sqrt(bc[1,1]), np.sqrt(bc[2,2]), np.sqrt(bc[3,3])]
 
     ## now fit the off diagonal elements with a cross talk and a cross force term
     for j, coord in enumerate(coords_to_use):
@@ -966,7 +1054,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
 
                 curr_temp = pulse_dict[coord][resp_coord]
                 tvec = np.arange(len(curr_temp))/attr['Fsamp']
-                curr_func = lambda tvec, Ax, Ay, Az: Ax*impulse_response(tvec, *fit_vals['x']['x']) + Ay*impulse_response(tvec, *fit_vals['y']['y']) + Az*impulse_response(tvec, *fit_vals['z']['z'])
+                curr_func = lambda tvec, Ax, Ay, Az: Ax*impulse_response(tvec, *fit_vals['x']['x'][:4]) + Ay*impulse_response(tvec, *fit_vals['y']['y'][:4]) + Az*impulse_response(tvec, *fit_vals['z']['z'][:4])
                 if(len(fit_pars)>0):
                     #fcoord = fit_vals[coord][coord]
                     #omega1, gamma1, t01 = fcoord[1], fcoord[3], fcoord[5] 
@@ -1015,7 +1103,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
 
 def get_average_template_paper(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx, 
                             coords_to_use=['x', 'y', 'z'], xrange=[-1,-1], drive_dict=None,
-                            lowpass_dict={'x': -1, 'y': -1, 'z': -1}):
+                            lowpass_dict={'x': -1, 'y': -1, 'z': -1}, norm_vals = [1,1,1]):
     ## version of the function to make templates for all 3 coordinates (x, y, z)
 
     pulse_dict = {}
@@ -1127,21 +1215,23 @@ def get_average_template_paper(calib_dict, make_plots=False, fit_pars=[], drive_
                     print(t0)
 
                     plt.subplot(1,3,j+1)
-                    plt.plot(tvec-t0, curr_temp, 'k') #colors_dict[coord][0])
-                    plt.plot(tvec-t0, fit_dict[coord][resp_coord], colors_dict[coord][1], lw=1)
+                    plt.plot(tvec-t0, curr_temp*norm_vals[j], 'k') #colors_dict[coord][0])
+                    plt.plot(tvec-t0, fit_dict[coord][resp_coord]*norm_vals[j], colors_dict[coord][1], lw=1)
 
                     plt.xlabel("Time (s)")
                     if(j==0):
-                        plt.ylabel("Normalized amplitude")
+                        plt.ylabel("Amplitude [nm]")
                     
-                    if(j > 0):
-                        plt.gca().set_yticks([])
+                    #if(j > 0):
+                    #    plt.gca().set_yticks([])
                     
-                    plt.ylim(-1.1,1.1)
-                    if(xrange[0]>-1):
+                    #plt.ylim(-1.1,1.1)
+                    if(xrange[0]>-1 and j<2):
                         plt.xlim(xrange)
+                    else:
+                        plt.xlim(-0.01, 0.05)
 
-        plt.subplots_adjust(hspace=0, wspace=0)
+        plt.subplots_adjust(wspace=0.15)
 
     fit_dict['t'] = tvec
     return fig
