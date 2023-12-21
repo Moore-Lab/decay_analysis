@@ -372,14 +372,19 @@ def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal=
         sphere_tf *= np.median(pts[pts>0])
 
         ## now refit
-        spars = [1, omega0, gamma]
+        # spars = [1, omega0, gamma]
+        # if(coord in ['x', 'y']):
+        #     gpts = np.abs(omega - omega0) < 1.0*gamma
+        #     bp, bc = curve_fit(lorentz, omega[gpts], J[gpts], p0=spars)
+        #     print(bp[0]/(2*np.pi), bp[1]/(2*np.pi))
+        #     sphere_tf_new = lorentz(omega, *bp)
+        # else:
+        #     sphere_tf_new = lorentz(omega, omega0, gamma, 9e4)
+
         if(coord in ['x', 'y']):
-            gpts = np.abs(omega - omega0) < 1.0*gamma
-            bp, bc = curve_fit(lorentz, omega[gpts], J[gpts], p0=spars)
-            print(bp[0]/(2*np.pi), bp[1]/(2*np.pi))
-            sphere_tf_new = lorentz(omega, *bp)
+            sphere_tf_new = 1.0*sphere_tf
         else:
-            sphere_tf_new = lorentz(omega, omega0, gamma, 9e4)
+            sphere_tf_new = lorentz(omega, omega0, gamma, 9e4) ## fit amplitude
 
         Jout = 1.0*J
         ## old signal to noise based version
@@ -390,9 +395,11 @@ def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal=
         Jout[bad_freqs] = 1e20
 
         plt.subplot(1,3,cidx+1)
-        plt.semilogy(cf, np.sqrt(J), 'k') #, label="Measured")
+        plt.semilogy(cf, np.sqrt(J), 'k', lw=1) #, label="Measured")
         plt.semilogy(cf, np.sqrt(sphere_tf_new), "-", color=colors_dict[coord][1]) #, label="Expected")
-        plt.xlim(0,range_dict[coord][1])
+        plt.xlim(1,range_dict[coord][1])
+        #plt.xlim(1,1e3)
+        plt.gca().set_xscale('log')
         gpts = (cf > 1) & (cf<200)
         plt.ylim(ylim_dict[coord])
         plt.xlabel("Frequency [Hz]")
@@ -3263,3 +3270,91 @@ def pulse_recon(step_params, res_params, template_dict, noise_dict, amp_cal_facs
     step_params['random_recon'] = random_recon
 
     return step_params, fig
+
+
+
+def pulse_recon_paper(step_params, res_params, template_dict, noise_dict, xrange, charge_times, amp_cal_facs = [1,1], do_bandpass=False, sigma=[1,1,1], ylims=None):
+
+    coord_list = ['x', 'y', 'z']
+
+    pulse_wind = 1
+    pulse_time = step_params['x_time']
+
+    ## function to take a second pass at reconstructing the steps    
+    cdat, attr, _ = get_data(step_params['filename'])
+    tvec = np.arange(len(cdat[:,0]))/attr['Fsamp'] - xrange[0]
+
+    nyquist = attr['Fsamp']/2
+
+    fig=plt.figure(figsize=(12,4))
+
+    coord_data = np.zeros((3, len(cdat[:,0])))
+
+    coord_labs_in = ['$A_x$ [MeV]', '$A_y$ [MeV]', '$A_z$ [MeV]', 'Charge [$e$]']
+    renorm = 2 # rescale after lp filt
+
+    for j, coord in enumerate(coord_list):
+        if(coord in ['x', 'y']):
+            fc_x = np.array([5, 70])/nyquist
+        else:
+            fc_x = np.array([100, 500])/nyquist           
+        
+        b_x, a_x = sp.butter(3, fc_x, btype='bandpass')
+        if(do_bandpass):
+            if(coord=='x'):
+                bandpass = [50]
+            elif(coord=='y'):
+                bandpass = [200]
+            elif(coord=='z'):
+                bandpass = [500]
+        else:
+            bandpass = []
+
+        filt_data = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=bandpass)
+        filt_data_unfilt = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=[])        
+
+        b_lp, a_lp = sp.butter(3, np.array([1,20])/nyquist, btype='bandpass') ## optional low pass for opt filt
+        filt_data_filt = sp.filtfilt(b_lp, a_lp, np.abs(filt_data_unfilt))
+
+
+        gpts = (tvec > pulse_time-pulse_wind) & (tvec < pulse_time+pulse_wind)
+        norm = amp_cal_facs[1][j]
+
+        plt.subplot(4,1,1+j)
+        plt.plot(tvec, filt_data_filt*norm*renorm, 'k', lw=0.75, rasterized=True)
+        ax1 = plt.gca()
+
+        plt.gca().set_xticks([])
+        if(ylims):
+            plt.ylim(ylims[coord_list[j]])
+            plt.gca().set_yticks([0, 500])
+
+        plt.xlim(0, np.diff(xrange))
+        plt.ylabel(coord_labs_in[j])
+
+        coord_data[j,:] = filt_data * norm * 1/(sigma[j])
+
+        for c in charge_times:
+            wind_size = 0.2
+            yy = plt.ylim()
+            ax1.fill_between([c-wind_size, c+wind_size], [yy[0], yy[0]], [yy[1], yy[1]], color='blue', alpha=0.1, zorder=0)
+
+    plt.subplot(4,1,4)
+    plt.plot(step_params['t_fine']-xrange[0], step_params['charge_fine'], 'gray', lw=0.75, rasterized=True)
+    plt.plot(step_params['t_coarse']-xrange[0], step_params['charge_coarse'], 'r')
+    plt.ylabel("Charge [$e$]")
+
+    yy = plt.ylim()
+    for c in charge_times:
+        wind_size = 0.2
+        plt.fill_between([c-wind_size, c+wind_size], [yy[0]-5, yy[0]-5], [yy[1]+5, yy[1]+5], color='blue', alpha=0.1) #, zorder=0)
+
+    plt.ylim(yy)
+
+    plt.xlabel("Time [s]")
+    plt.xlim(0, np.diff(xrange))
+
+    plt.subplots_adjust(hspace=0)
+    fig.align_labels()
+
+    return fig
