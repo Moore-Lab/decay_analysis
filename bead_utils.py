@@ -1525,7 +1525,7 @@ def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_of
 def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
                  cal_fac=1, drive_idx=drive_idx, do_lp_filt=False, wind=10, 
                  subtract_sine_step=False, make_plots=False, coord='x', resp_coord='', template_fit_vals={},
-                 drive_dict=None):
+                 drive_dict=None, paper_plot=False):
     ## optimally filter including noise spectrum
     filt_dict = {}
 
@@ -1605,7 +1605,7 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
             #
             #    corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, np.abs(corr_data)**2))
 
-            if(do_lp_filt):
+            if(do_lp_filt and not paper_plot):
                 if(coord == 'x'):
                     ff = [50]
                 elif(coord == 'y'):
@@ -1619,6 +1619,15 @@ def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time
                     b_lp, a_lp = sp.butter(3, ff/nyquist, btype='bandpass')
                     
                 corr_data = sp.filtfilt(b_lp, a_lp, corr_data)
+
+            elif(do_lp_filt and paper_plot):
+                b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
+                b_lpz, a_lpz = sp.butter(3, 200/nyquist, btype='lowpass') ## optional low pass for opt filt
+
+                if(coord in ['x', 'y']):
+                    corr_data = np.sqrt(sp.filtfilt(b_lp, a_lp, np.abs(corr_data)**2))
+                else:
+                    corr_data = np.sqrt(sp.filtfilt(b_lpz, a_lpz, np.abs(corr_data)**2))
 
             impulse_cent = get_impulse_cents(cdat, fs, time_offset=0, pulse_data=pulse_data, 
                                              drive_idx=drive_dict[coord], drive_freq = 120)
@@ -2547,8 +2556,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     ttm = tvec[-1] if tmax < 0 else tmax
     xlims = [[0, ttm], [xmin_zoom, xmax_zoom]]
     coord_labs_pos = ['X pos. [nm]', 'Y pos. [nm]', 'Z pos. [nm]', 'Charge [$e$]']
-    coord_labs = ['X amp, $A_x$ [MeV]', 'Y amp, $A_y$ [MeV]', 'Z amp, $A_z$ [MeV]', 'Charge [$e$]']
-    coord_labs_in = ['$A_x$ [MeV]', '$A_y$ [MeV]', '$A_z$ [MeV]', 'Charge [$e$]']
+    coord_labs = ['$A_x$ [MeV/c]', '$A_y$ [MeV/c]', '$A_z$ [MeV/c]', 'Charge, $Q$ [$e$]']
+    coord_labs_in = ['$A_x$', '$A_y$', '$A_z$', 'Q']
 
     fil_vec = (data[:,filament_col]>0.5)
     fil_times = tvec[fil_vec]
@@ -2732,15 +2741,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             b_lp, a_lp = sp.butter(3, np.array([1,20])/nyquist, btype='bandpass') ## optional low pass for opt filt
             gpts = (tvec > xmin_zoom) & (tvec < xmax_zoom)
             filt_data_filt = sp.filtfilt(b_lp, a_lp, np.abs(corr_data_unfilt))
-            if(i==0):
-                renorm = np.max(np.abs(corr_data_unfilt[gpts]))/np.max(np.abs(filt_data_filt[gpts]))
-            filt_data_filt *= renorm
         else:
-            ## no renorm since well above the res freq
             b_lp, a_lp = sp.butter(3, np.array([1,500])/nyquist, btype='bandpass') ## optional low pass for opt filt
-            filt_data_filt = sp.filtfilt(b_lp, a_lp, np.abs(corr_data_unfilt)*renorm)
-            renorm = np.max(np.abs(corr_data_unfilt[gpts]))/np.max(np.abs(filt_data_filt[gpts]))
-            filt_data_filt *= renorm
+            filt_data_filt = sp.filtfilt(b_lp, a_lp, np.abs(corr_data_unfilt)) 
 
         ## low pass if desired
         if(do_lowpass):
@@ -2863,9 +2866,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
             if(col_idx == 0):
                 ax1.fill_between([xlims[col_idx+1][0]+plot_wind_offset, xlims[col_idx+1][1]+plot_wind_offset], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.1, zorder=0)
-                ax1.set_ylabel(coord_labs_in[i])
+                ax1.set_ylabel(coord_labs[i])
                 if(i==1 and paper_plot):
-                    ax1.set_yticks([0,100,200,300])
+                    ax1.set_yticks([0,100,200])
             #elif(col_idx==1):
             #    ax1.fill_between([charge_range[0], charge_range[1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.4)
             #elif(col_idx==1):
@@ -2920,10 +2923,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             integer_charge_before = np.round(charge_before)
             integer_charge_after = np.round(charge_after)
             #print(integer_charge_after, integer_charge_before)
-            buff=5
+            buff=3
             t = tvec[coarse_points][1:(charge_change_idx+buff)]
             plt.plot(t, np.ones_like(t)*integer_charge_before, 'k:', zorder=5)
-            text = plt.text(t[-1]+0.5, integer_charge_before, "%d$e$"%integer_charge_before, ha='left', va='top', fontsize=10, zorder=4)
+            text = plt.text(t[-1], integer_charge_before, "%d$e$"%integer_charge_before, ha='left', va='top', fontsize=10, zorder=4)
             text.set_bbox(dict(facecolor='white', edgecolor='none', pad=0))
             t = tvec[coarse_points][(charge_change_idx-buff):]
             plt.plot(t, np.ones_like(t)*integer_charge_after, 'k:', zorder=5)
@@ -2941,7 +2944,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
         if(col_idx==1):
             if(paper_plot):
                 plt.xlabel("Time [s]", fontsize=9)
-                plt.ylabel("$Q$ [$e$]", fontsize=9)
+                plt.ylabel("$Q$", fontsize=9)
             else:
                 plt.xlabel("Time [s]")
         else:
@@ -2966,8 +2969,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     curr_step_params['charge_coarse'] = corr_dat_coarse*cal_facs[1]
 
     figout.align_labels()
-    plt.figure(figout.number)
-    plt.subplots_adjust( hspace=0.0, left=0, right=0.92, top=0.95, bottom=0.05)
+    #plt.figure(figout.number)
+    plt.subplots_adjust( hspace=0.0, top=0.98, left=0.13, bottom=0.10, right=0.91 )
 
     return curr_step_params
 
