@@ -2970,7 +2970,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
     figout.align_labels()
     #plt.figure(figout.number)
-    plt.subplots_adjust( hspace=0.0, top=0.98, left=0.13, bottom=0.10, right=0.91 )
+    plt.subplots_adjust( hspace=0.0, top=0.98, left=0.15, bottom=0.10, right=0.91 )
 
     return curr_step_params
 
@@ -3316,11 +3316,11 @@ def pulse_recon_paper(step_params, template_dict, noise_dict, xrange, charge_tim
 
     nyquist = attr['Fsamp']/2
 
-    fig=plt.figure(figsize=(12,4))
+    fig=plt.figure(figsize=(12,4.5))
 
     coord_data = np.zeros((3, len(cdat[:,0])))
 
-    coord_labs_in = ['$A_x$ [MeV]', '$A_y$ [MeV]', '$A_z$ [MeV]', 'Charge [$e$]']
+    coord_labs_in = ['$A_x$ [MeV/c]', '$A_y$ [MeV/c]', '$A_z$ [MeV/c]', 'Charge [$e$]']
     renorm = 2 # rescale after lp filt
 
     for j, coord in enumerate(coord_list):
@@ -3406,7 +3406,7 @@ def sine_subtraction_paper(step_params, res_params, template_dict, noise_dict, x
 
     coord_data = np.zeros((3, len(cdat[:,0])))
 
-    coord_labs_in = ['$A_x$ [MeV]', '$A_y$ [MeV]', '$A_z$ [MeV]', 'Charge [$e$]']
+    coord_labs_in = ['$A_x$ [MeV/c]', '$A_y$ [MeV/c]', '$A_z$ [MeV/c]', 'Charge [$e$]']
     renorm = 2 # rescale after lp filt
 
     for j, coord in enumerate(coord_list):
@@ -3431,8 +3431,7 @@ def sine_subtraction_paper(step_params, res_params, template_dict, noise_dict, x
 
         b_lp, a_lp = sp.butter(3, np.array([1,20])/nyquist, btype='bandpass') ## optional low pass for opt filt
         filt_data_filt = sp.filtfilt(b_lp, a_lp, np.abs(filt_data_unfilt))
-        gpts = (tvec > xzoom[0]) & (tvec < xzoom[1])
-        renorm = np.max(np.abs(filt_data_filt[gpts]))/np.max(np.abs(filt_data[gpts]))
+
 
         if(coord in ['x', 'y']):
             fc_x = np.array([5, 120])/nyquist
@@ -3474,7 +3473,7 @@ def sine_subtraction_paper(step_params, res_params, template_dict, noise_dict, x
         plt.ylabel("$x$ position [nm]")
 
         plt.subplot(2,1,2)
-        plt.plot(tvec, filt_data_filt*norm/renorm, 'gray') #, lw=1, rasterized=True)
+        plt.plot(tvec, filt_data_filt*norm, 'gray') #, lw=1, rasterized=True)
 
         cdat[:,x_idx] -= amp*drive_resp
         filt_data = compute_opt_filt(cdat, coord, template_dict, noise_dict, attr['Fsamp'], bandpass=bandpass)
@@ -3483,9 +3482,8 @@ def sine_subtraction_paper(step_params, res_params, template_dict, noise_dict, x
         b_lp, a_lp = sp.butter(3, np.array([1,20])/nyquist, btype='bandpass') ## optional low pass for opt filt
         filt_data_filt_sub = sp.filtfilt(b_lp, a_lp, np.abs(filt_data_unfilt))
         gpts = (tvec > xzoom[0]) & (tvec < xzoom[1])
-        renorm = np.max(np.abs(filt_data_filt_sub[gpts]))/np.max(np.abs(filt_data[gpts]))
 
-        plt.plot(tvec, filt_data_filt_sub*norm/renorm, 'k') #, lw=1, rasterized=True)
+        plt.plot(tvec, filt_data_filt_sub*norm, 'k') #, lw=1, rasterized=True)
 
         plt.xlim(0, np.diff(xrange))
         plt.ylabel(coord_labs_in[j])
@@ -3493,7 +3491,7 @@ def sine_subtraction_paper(step_params, res_params, template_dict, noise_dict, x
         if(xzoom):
             plt.xlim(xzoom)
 
-        plt.ylim([-100,300])
+        plt.ylim([-100,200])
         plt.xlabel("Time [s]")
         plt.gca().set_yticks([-100,0,100, 200])
 
