@@ -2552,7 +2552,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
         
     plt.figure(figout.number)
     coord_dat = [x_position_data, y_position_data, z_position_data]
-    range_fac = [1,1,4]
+    range_fac = [1,1.5,5]
     ttm = tvec[-1] if tmax < 0 else tmax
     xlims = [[0, ttm], [xmin_zoom, xmax_zoom]]
     coord_labs_pos = ['X pos. [nm]', 'Y pos. [nm]', 'Z pos. [nm]', 'Charge [$e$]']
@@ -2790,7 +2790,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized)
 
             if(i==2):
-                plt.ylim(0.5*ax2y1*range_fac[i], ax2y2*range_fac[i])  
+                plt.ylim(0.2*ax2y1*range_fac[i], ax2y2*range_fac[i])  
             else:
                 plt.ylim(ax2y1*range_fac[i], ax2y2*range_fac[i]) 
                           #ax1.set_zorder(100)
@@ -2867,8 +2867,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             if(col_idx == 0):
                 ax1.fill_between([xlims[col_idx+1][0]+plot_wind_offset, xlims[col_idx+1][1]+plot_wind_offset], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.1, zorder=0)
                 ax1.set_ylabel(coord_labs[i])
-                if(i==1 and paper_plot):
-                    ax1.set_yticks([0,100,200])
+                #if(i==1 and paper_plot):
+                #    ax1.set_yticks([0,100,200])
             #elif(col_idx==1):
             #    ax1.fill_between([charge_range[0], charge_range[1]], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.4)
             #elif(col_idx==1):
