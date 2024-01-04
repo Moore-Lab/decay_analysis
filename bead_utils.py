@@ -412,7 +412,8 @@ def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal=
         plt.subplots_adjust(wspace=0.25)
     return noise_dict
 
-
+def gauss_fun(x,A,mu,sig):
+    return A*np.exp(-(x-mu)**2/(2*sig**2))
 
 def plot_charge_steps(charge_vec):
     dt = []
@@ -2432,7 +2433,7 @@ def fit_prepulse_baseline(data, nyquist, t, noise_dict, coord_list = ['x', 'y', 
 def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xrange=[-1,-1], cal_facs=[1,1], amp_cal_facs=[], 
                             drive_idx=drive_idx, plot_wind=5, charge_wind=5, charge_range=[-1,-1], do_lowpass=False, 
                             ylim_init=[-10,50], ylim2_scale=4.5, plot_wind_zoom=0.30, filt_time_offset = 0, figout=None, 
-                            filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-17,32], 
+                            filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-20,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, figsub=[],
                             plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fit_prepulse=False, 
                             prepulse_fig=[], drive_freq=111, drive_wind=1, data_wind=7, search_wind=0.1):
@@ -2446,8 +2447,12 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     fc_x = np.array([5, 70])/nyquist
     b_x,a_x = sp.butter(3, fc_x, btype='bandpass')
     x_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx])
-    y_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+1])
-    z_position_data = sp.filtfilt(b_x, a_x, data[:,x_idx+2])
+    fc_y = np.array([5, 100])/nyquist
+    b_y,a_y = sp.butter(3, fc_y, btype='bandpass')
+    y_position_data = sp.filtfilt(b_y, a_y, data[:,x_idx+1])
+    fc_z = np.array([100, 400])/nyquist
+    b_z,a_z = sp.butter(3, fc_z, btype='bandpass')
+    z_position_data = sp.filtfilt(b_z, a_z, data[:,x_idx+2])
 
     b_lp, a_lp = sp.butter(3, 20/nyquist, btype='lowpass') ## optional low pass for opt filt
     b_lpz, a_lpz = sp.butter(3, 200/nyquist, btype='lowpass') ## optional low pass for opt filt
@@ -2784,6 +2789,22 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
 
             if(col_idx==0):
                 ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized, lw=lw)
+
+                ## calculate signal to noise
+                if(paper_plot and False):
+                    hh, be = np.histogram(opt_data, bins=100)
+                    bc = be[:-1] + 0.5*np.diff(be)
+                    gfit, gcov = curve_fit(gauss_fun, bc, hh, p0=[np.max(hh), np.mean(opt_data), np.std(opt_data)])
+                    gpts = (tvec > 16) & (tvec < 17)
+                    peak = np.max(opt_data[gpts])
+                    print("peak: ", peak, tvec[gpts][np.argmax(opt_data[gpts])])
+                    print("sigma: ", gfit[2])
+                    plt.close('all')
+                    plt.errorbar(bc, hh, yerr=np.sqrt(hh), fmt='o', color='k', label='Data')
+                    plt.plot(bc, gauss_fun(bc, *gfit), 'r', label='Gaussian fit')
+                    print("SNR: ", peak/gfit[2])
+                    plt.show()
+
             else:
                 if(not paper_plot): 
                     ax1.plot(tvec, opt_data_orig, 'gray', zorder=0)
@@ -2819,8 +2840,13 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 ax1.set_ylim(ylim_nm[0]/ylim_nm[1] * ax2y2, ax2y2)
                 yy = ax2.get_ylim()
                 if(i==2):
-                    ax2.set_ylim(ylim_nm_z[0], ylim_nm_z[1])
-                    ax1.set_ylim(ylim_nm_z[0]/ylim_nm_z[1] * ax2y2*1.5, ax2y2*1.5)
+                    scale_fac = 1.5
+                    #ax2.set_ylim(ylim_nm_z[0]*scale_fac, ylim_nm_z[1]*scale_fac)
+                    #ax1.set_ylim(ylim_nm[0]/ylim_nm[1]*ax2y2*1.5, ax2y2*1.5)
+                    ax2.set_ylim(-0.7*ylim_nm_z[1]*scale_fac, ylim_nm_z[1]*scale_fac)
+                    ax1.set_ylim(-0.7*ax2y2*1.5, ax2y2*1.5)
+                    ax1.yaxis.labelpad = -7
+                    ax2.set_yticks([0,25])
                 else:
                     ax2.set_ylim(ylim_nm[0], ylim_nm[1])
 
