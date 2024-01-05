@@ -3484,7 +3484,7 @@ def sine_subtraction_paper(step_params, res_params, template_dict, noise_dict, x
 
         sub_wf = x_filt/amp_cal_facs[0][coord] * 1e9 - amp*drive_resp/amp_cal_facs[0][coord] * 1e9
 
-        plt.plot(tvec, x_filt/amp_cal_facs[0][coord] * 1e9, 'gray')
+        plt.plot(tvec, x_filt/amp_cal_facs[0][coord] * 1e9, 'gray', lw=2)
         plt.plot(tvec, sub_wf, 'orange', lw=0.75)
         plt.plot(tvec, drive_data/amp_cal_facs[0][coord] * 1e9, 'tab:red')
         plt.plot(tvec, amp*drive_resp/amp_cal_facs[0][coord] * 1e9, 'tab:blue', lw=0.75)
