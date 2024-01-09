@@ -2930,7 +2930,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 rect2 = Rectangle((0.35, -0.6), 0.3, 0.3, transform=ax1.transAxes, color='white', zorder=3)
                 outer_ax.add_patch(rect2)
         else:
-            plt.subplot(4, 2, 7+col_idx)
+            if(col_idx not in col_to_use):
+                continue
+            plt.subplot(4, 1, 4)
             ax1 = plt.gca()
             ax1.tick_params(axis='x', pad=0)
             ax1.tick_params(axis='y', pad=0)
