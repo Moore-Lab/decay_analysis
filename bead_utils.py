@@ -2782,7 +2782,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 ax1.tick_params(axis='x', pad=0)
                 ax1.tick_params(axis='y', pad=0)
                 ax1.xaxis.labelpad = 0
-                #ax1.yaxis.labelpad = 0
+                if(i < 2 or col_idx==0):
+                    ax1.yaxis.labelpad = 0
+                else:
+                    ax1.yaxis.labelpad = 20
                 lw=1
 
             bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
@@ -2837,8 +2840,14 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     ax2.tick_params(axis='x', pad=0)
                     ax2.tick_params(axis='y', pad=4)
                     ax2.xaxis.labelpad = 0
-                    ax2.yaxis.labelpad = 2
-                    ax2.set_ylabel(coord_labs_pos[i])                    
+                    
+                    #ax2.yaxis.labelpad = 2
+                    ax2.set_ylabel(coord_labs_pos[i])    
+                    
+                    if(i < 2 or col_idx==0):
+                        ax2.yaxis.labelpad = 2
+                    else:
+                        ax2.yaxis.labelpad = 10                
 
                 print(ax2y2)
                 ax1.set_ylim(ylim_nm[0]/ylim_nm[1] * ax2y2, ax2y2)
@@ -3006,8 +3015,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     curr_step_params['charge_coarse'] = corr_dat_coarse*cal_facs[1]
 
     #if(paper_plot):
-    plt.sca(ax1)
-    figout.align_labels()
+    #plt.sca(ax1)
+    if(paper_plot or col_to_use==[0]):
+        figout.align_labels()
     #plt.figure(figout.number)
     plt.subplots_adjust( hspace=0.0, top=0.98, left=0.15, bottom=0.10, right=0.91 )
 
