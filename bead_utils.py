@@ -2437,7 +2437,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                             filament_col=12, toffset=0, tmax=-1, subtract_sine_step=False, res_pars=[0,0], ylim_nm=[-20,32], 
                             ylim_nm_z=[-7.5,32], filt_charge_data = False, field_cal_fac=1, do_subtract_plots=False, figsub=[],
                             plot_wind_offset=0, paper_plot=False, rasterized=False, plot_peak=False, fit_prepulse=False, 
-                            prepulse_fig=[], drive_freq=111, drive_wind=1, data_wind=7, search_wind=0.1):
+                            prepulse_fig=[], drive_freq=111, drive_wind=1, data_wind=7, search_wind=0.1, col_to_use=[0,1]):
 
     coord_list = ['x', 'y', 'z']
     nyquist =(attributes['Fsamp']/2)
@@ -2773,14 +2773,17 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     ax1.set_ylabel(coord_labs_in[i], fontsize=9)
                 lw = 1
             else:
-                    sp_idx = 2*i + col_idx + 1
-                    plt.subplot(4,2,sp_idx)
-                    ax1 = plt.gca()
-                    ax1.tick_params(axis='x', pad=0)
-                    ax1.tick_params(axis='y', pad=0)
-                    ax1.xaxis.labelpad = 0
-                    ax1.yaxis.labelpad = 0
-                    lw=1
+                if(col_idx not in col_to_use):
+                    continue
+
+                sp_idx = i + 1
+                plt.subplot(4,1,sp_idx)
+                ax1 = plt.gca()
+                ax1.tick_params(axis='x', pad=0)
+                ax1.tick_params(axis='y', pad=0)
+                ax1.xaxis.labelpad = 0
+                ax1.yaxis.labelpad = 0
+                lw=1
 
             bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
             #ax1.plot(tvec, bp_data, color='k', rasterized=True, zorder=1)
