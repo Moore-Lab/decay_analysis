@@ -2782,7 +2782,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 ax1.tick_params(axis='x', pad=0)
                 ax1.tick_params(axis='y', pad=0)
                 ax1.xaxis.labelpad = 0
-                ax1.yaxis.labelpad = 0
+                #ax1.yaxis.labelpad = 0
                 lw=1
 
             bp_data = np.roll(coord_dat[i],-filt_time_offset)/amp_cal_facs[0][coord] * 1e9 ## in nm
@@ -2810,8 +2810,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                     plt.show()
 
             else:
-                if(not paper_plot): 
-                    ax1.plot(tvec, opt_data_orig, 'gray', zorder=0)
+                #if(not paper_plot): 
+                #    ax1.plot(tvec, opt_data_orig, 'gray', zorder=0)
                 ax1.plot(tvec, opt_data, 'k', zorder=0, rasterized=rasterized)
 
             if(i==2):
@@ -2897,6 +2897,10 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
             if(col_idx == 0):
                 ax1.fill_between([xlims[col_idx+1][0]+plot_wind_offset, xlims[col_idx+1][1]+plot_wind_offset], [bsfac*y1, bsfac*y1], [bsfac*y2, bsfac*y2], color='blue', alpha=0.1, zorder=0)
                 ax1.set_ylabel(coord_labs[i])
+            
+            if(col_idx == 1 and not paper_plot):
+                ax1.set_ylabel(coord_labs[i])            
+
                 #if(i==1 and paper_plot):
                 #    ax1.set_yticks([0,100,200])
             #elif(col_idx==1):
@@ -2945,8 +2949,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
         else:
             plt.plot(tvec[fine_points], corr_dat_fine*cal_facs[0], 'gray', rasterized=rasterized) 
 
-        if(col_idx == 1 and not paper_plot):
-            plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=rasterized)
+        #if(col_idx == 1 and not paper_plot):
+        #    plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=rasterized)
 
         if(col_idx==0):
             plt.plot(tvec[coarse_points], corr_dat_coarse*cal_facs[1], 'red', rasterized=rasterized)
@@ -2979,6 +2983,7 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 plt.ylabel("$Q$", fontsize=9)
             else:
                 plt.xlabel("Time [s]")
+                plt.ylabel("Charge, $Q$ [$e$]")
         else:
             plt.xlabel("Time [s]")
             plt.ylabel("Charge, $Q$ [$e$]")
@@ -3000,6 +3005,8 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     curr_step_params['t_coarse'] = tvec[coarse_points]
     curr_step_params['charge_coarse'] = corr_dat_coarse*cal_facs[1]
 
+    #if(paper_plot):
+    plt.sca(ax1)
     figout.align_labels()
     #plt.figure(figout.number)
     plt.subplots_adjust( hspace=0.0, top=0.98, left=0.15, bottom=0.10, right=0.91 )
