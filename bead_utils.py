@@ -1107,7 +1107,7 @@ def get_average_template_3D(calib_dict, make_plots=False, fit_pars=[], drive_idx
 
 def get_average_template_paper(calib_dict, make_plots=False, fit_pars=[], drive_idx=drive_idx, 
                             coords_to_use=['x', 'y', 'z'], xrange=[-1,-1], drive_dict=None,
-                            lowpass_dict={'x': -1, 'y': -1, 'z': -1}, norm_vals = [1,1,1]):
+                            lowpass_dict={'x': -1, 'y': -1, 'z': -1}, norm_vals = [1,1,1], ylims=[10,10,5]):
     ## version of the function to make templates for all 3 coordinates (x, y, z)
 
     pulse_dict = {}
@@ -1234,6 +1234,8 @@ def get_average_template_paper(calib_dict, make_plots=False, fit_pars=[], drive_
                         plt.xlim(xrange)
                     else:
                         plt.xlim(-0.01, 0.05)
+
+                    plt.ylim(-ylims[j],ylims[j])
 
         plt.subplots_adjust(wspace=0.15)
 
@@ -3019,7 +3021,9 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
     if(paper_plot or col_to_use==[0]):
         figout.align_labels()
     #plt.figure(figout.number)
-    plt.subplots_adjust( hspace=0.0, top=0.98, left=0.15, bottom=0.10, right=0.91 )
+        plt.subplots_adjust( hspace=0.0, top=0.98, left=0.15, bottom=0.10, right=0.91 )
+    else:
+         plt.subplots_adjust( hspace=0.0, top=0.98, left=0.15, bottom=0.10, right=0.86 )       
 
     return curr_step_params
 
