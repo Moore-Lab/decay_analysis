@@ -1,3 +1,8 @@
+### Functions for analyzing data from the alpha recoil paper
+### Currently this file is imported by the analysis scripts for each data
+### set, to use common functions for analyzing all spheres. In the future,
+### it would be useful to organize into a class structure.
+
 import glob, os, h5py, re
 import numpy as np
 import matplotlib.pyplot as plt
@@ -54,7 +59,7 @@ def get_alpha_data(fname):
     time = f['time']
 
 def plot_raw_data(dat, attr, nfft=-1, do_psd=False, do_filt=True):
-
+    ## helper function to plot raw data and optionally PSD
     tvec = np.arange(len(dat[:,0]))/attr['Fsamp']
 
     plt.figure(figsize = (14, 16))
@@ -167,8 +172,9 @@ def correlation_template_cw(dat, attr, length=0.1, use_window=True, make_plots=F
     return template, drive_freq
 
 def correlation_template(dat, attr, make_plots=False, lp_freq=20):
+    ## make a template for correlating against the charge data
+
     ## first make the drive template (cut out the first pulse)
-    #drive_dat = dat[:,10]
     drive_dat = dat[:,10]
     drive_dat_filt = drive_dat**2
     fc = lp_freq/(attr['Fsamp']/2) ## lowpass at 20 Hz
@@ -185,23 +191,16 @@ def correlation_template(dat, attr, make_plots=False, lp_freq=20):
         plt.figure()
         plt.plot(tvec, drive_dat)
         plt.plot(tvec, drive_dat_filt)
-        #plt.plot(tvec[drive_start:drive_end], drive_dat[drive_start:drive_end])
-        #plt.plot(tvec,thresh_cross)
-        #plt.plot(tvec[:-1],thresh_cross)
-        #plt.xlim(0.9*tvec[drive_start], 1.1*tvec[drive_end])
-        #plt.plot(template)
 
     ## now correlate against original time stream
-    #template = drive_dat[drive_start:drive_end]
     template = drive_dat[drive_start:(drive_start + 40*115)]
-    #template = np.sin(2*np.pi*87*tvec[1:(10*115)])
     window = sp.windows.hamming(len(template))
-
 
     return template*window
 
 def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
     ## take noise files and find the average PSD for use in the optimal filter
+    ## this version is for the 1D case (x direction only)
 
     J = 0
     nfiles = 0
@@ -222,17 +221,15 @@ def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
 
     ## expected for resonator params
     eta = 2*res_pars[1]/res_pars[0]
-    omega0, gamma = res_pars[0]/np.sqrt(1 - eta**2), 2*res_pars[1] ## factor of two by definition
+    omega0, gamma = res_pars[0]/np.sqrt(1 - eta**2), 2*res_pars[1]
     omega = 2*np.pi*cf
     sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
     res_pos = np.argmin( np.abs(omega0-omega) )
     sphere_tf *= J[res_pos]/sphere_tf[res_pos]
 
     Jout = 1.0*J
-    ## old signal to noise based version
     Jout[J/sphere_tf > 20] = 1e20
-    ## just cut frequencies instead
-    bad_freqs = (cf < 5) | (cf > 115)
+    bad_freqs = (cf < 5) | (cf > 115) ## coarse band pass in x
     Jout[bad_freqs] = 1e20
 
     plt.figure()
@@ -254,6 +251,7 @@ def get_noise_template(noise_files, nfft=-1, res_pars=[2*np.pi*30, 2*np.pi*5]):
 
 def get_noise_template_3D(noise_files, fit_vals, range_dict, nfft=-1):
     ## take noise files and find the average PSD for use in the optimal filter
+    ## this version works for 3D (x, y, and z)
 
     coords_dict = {'x': x_idx, 'y': y_idx, 'z': z_idx}
     noise_dict = {}
@@ -289,21 +287,18 @@ def get_noise_template_3D(noise_files, fit_vals, range_dict, nfft=-1):
         ## expected for resonator params
         eta = 2*res_pars[1]/res_pars[0]
         omega0 = res_pars[0]/np.sqrt(1 - eta**2) if eta < 1 else res_pars[0]
-        gamma = 2*res_pars[1] ## factor of two by definition
+        gamma = 2*res_pars[1]
         omega = 2*np.pi*cf
         sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
         res_pos = np.argmin( np.abs(omega0-omega) )
         pts = J[(res_pos-10):(res_pos+10)]/np.median(sphere_tf[(res_pos-10):(res_pos+10)])
         sphere_tf *= np.median(pts[pts>0])
-        print(res_pos)
-        #if(coord == 'z'):
-        #    sphere_tf *= 0.075
 
         Jout = 1.0*J
-        ## old signal to noise based version
+        ## cut frequencies with bad signal-to-noise
         if(coord != 'z'):
             Jout[J/sphere_tf > 20] = 1e20
-        ## just cut frequencies instead
+        ## if desired, also limit the range within reasonable cutoffs
         bad_freqs = (cf < range_dict[coord][0]) | (cf > range_dict[coord][1])
         Jout[bad_freqs] = 1e20
 
@@ -324,9 +319,10 @@ def get_noise_template_3D(noise_files, fit_vals, range_dict, nfft=-1):
     return noise_dict
 
 
-
 def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal={'x': 1, 'y': 1, 'z': 1}):
     ## take noise files and find the average PSD for use in the optimal filter
+    ## this is a helper function just used to make plots for the paper without
+    ## interfering with the template functions just above
 
     colors_dict = {'x': ['darkblue', 'blue'], 'y': ['darkred', 'red'], 'z': ['k', 'orange']}
 
@@ -364,49 +360,28 @@ def plot_noise_paper(noise_files, fit_vals, range_dict, ylim_dict, nfft=-1, cal=
         ## expected for resonator params
         eta = 2*res_pars[1]/res_pars[0]
         omega0 = res_pars[0]/np.sqrt(1 - eta**2) if eta < 1 else res_pars[0]
-        gamma = 2*res_pars[1] ## factor of two by definition
+        gamma = 2*res_pars[1]
         omega = 2*np.pi*cf
         sphere_tf = (gamma/((omega0**2 - omega**2)**2 + omega**2*gamma**2))
         res_pos = np.argmin( np.abs(omega0-omega) )
         pts = J[(res_pos-10):(res_pos+10)]/np.median(sphere_tf[(res_pos-10):(res_pos+10)])
         sphere_tf *= np.median(pts[pts>0])
 
-        ## now refit
-        # spars = [1, omega0, gamma]
-        # if(coord in ['x', 'y']):
-        #     gpts = np.abs(omega - omega0) < 1.0*gamma
-        #     bp, bc = curve_fit(lorentz, omega[gpts], J[gpts], p0=spars)
-        #     print(bp[0]/(2*np.pi), bp[1]/(2*np.pi))
-        #     sphere_tf_new = lorentz(omega, *bp)
-        # else:
-        #     sphere_tf_new = lorentz(omega, omega0, gamma, 9e4)
-
         if(coord in ['x', 'y']):
             sphere_tf_new = 1.0*sphere_tf
         else:
             sphere_tf_new = lorentz(omega, omega0, gamma, 9e4) ## fit amplitude
 
-        Jout = 1.0*J
-        ## old signal to noise based version
-        if(coord != 'z'):
-            Jout[J/sphere_tf > 20] = 1e20
-        ## just cut frequencies instead
-        bad_freqs = (cf < range_dict[coord][0]) | (cf > range_dict[coord][1])
-        Jout[bad_freqs] = 1e20
-
         plt.subplot(1,3,cidx+1)
-        plt.semilogy(cf, np.sqrt(J), 'k', lw=1) #, label="Measured")
-        plt.semilogy(cf, np.sqrt(sphere_tf_new), "-", color=colors_dict[coord][1]) #, label="Expected")
+        plt.semilogy(cf, np.sqrt(J), 'k', lw=1)
+        plt.semilogy(cf, np.sqrt(sphere_tf_new), "-", color=colors_dict[coord][1])
         plt.xlim(1,range_dict[coord][1])
-        #plt.xlim(1,1e3)
         plt.gca().set_xscale('log')
         gpts = (cf > 1) & (cf<200)
         plt.ylim(ylim_dict[coord])
         plt.xlabel("Frequency [Hz]")
         if(cidx==0):
             plt.ylabel("Position ASD [nm/$\sqrt{\mathrm{Hz}}$]")
-        #plt.legend(loc="upper right")
-        #plt.title("%s direction"%coord)
 
         noise_dict[coord] = {"freq": cf, "J": Jout, "Jorig": J}
         plt.subplots_adjust(wspace=0.25)
