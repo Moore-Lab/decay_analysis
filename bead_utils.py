@@ -1397,86 +1397,85 @@ def predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False, drive_idx=dr
     
     return best_scale*xdrive_inv
 
-# def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
-#                  omega0 = 2*np.pi*40, gamma = 2*np.pi*4, cal_fac=1, drive_idx=drive_idx, 
-#                  subtract_sine_step=False, make_plots=False):
-#     ## implement optimal filter. 
+def optimal_filt(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
+                 omega0 = 2*np.pi*40, gamma = 2*np.pi*4, cal_fac=1, drive_idx=drive_idx, 
+                 subtract_sine_step=False, make_plots=False):
+    ## initial implementation of optimal filter (only 1D)
     
-#     filt_dict = {}
+    filt_dict = {}
 
-#     biggest_pulse = np.max( np.fromiter(template_dict.keys(), dtype=float) )
-#     curr_template = template_dict[biggest_pulse]
+    biggest_pulse = np.max( np.fromiter(template_dict.keys(), dtype=float) )
+    curr_template = template_dict[biggest_pulse]
 
-#     for impulse_amp in calib_dict.keys():
+    for impulse_amp in calib_dict.keys():
 
-#         curr_files = calib_dict[impulse_amp]
+        curr_files = calib_dict[impulse_amp]
 
-#         stilde = np.fft.rfft(curr_template)
-#         sfreq = np.fft.rfftfreq(len(curr_template),d=1e-4)
+        stilde = np.fft.rfft(curr_template)
+        sfreq = np.fft.rfftfreq(len(curr_template),d=1e-4)
 
-#         J = np.interp(sfreq, noise_dict['freq'], noise_dict['J'])
+        J = np.interp(sfreq, noise_dict['freq'], noise_dict['J'])
 
-#         ## sharp bandpass
-#         #J = np.ones_like(J)*1e20
-#         #bpts = (sfreq < 1) | (sfreq > 100)
-#         #bpts = (sfreq < 5) | (sfreq > 100)
-#         #J[bpts] = 1e20
-#         phi = stilde/J
+        ## sharp bandpass
+        #J = np.ones_like(J)*1e20
+        #bpts = (sfreq < 1) | (sfreq > 100)
+        #bpts = (sfreq < 5) | (sfreq > 100)
+        #J[bpts] = 1e20
+        phi = stilde/J
 
-#         phi_t = np.fft.irfft(phi)
-#         phi_t = phi_t/np.max(phi_t)
+        phi_t = np.fft.irfft(phi)
+        phi_t = phi_t/np.max(phi_t)
 
-#         if(make_plots):
-#             plt.figure()
-#             plt.plot(phi_t)
-#             plt.plot(curr_template)
-#             plt.show()
+        if(make_plots):
+            plt.figure()
+            plt.plot(phi_t)
+            plt.plot(curr_template)
+            plt.show()
 
-#         filt_dict[impulse_amp] = []
-#         off_key = str(impulse_amp) + "_offsets"
-#         filt_dict[off_key] = []
-#         for fname in curr_files:
-#             cdat, attr, _ = get_data(fname)
-#             fs = attr['Fsamp']
-#             xdata = cdat[:,x_idx]
+        filt_dict[impulse_amp] = []
+        off_key = str(impulse_amp) + "_offsets"
+        filt_dict[off_key] = []
+        for fname in curr_files:
+            cdat, attr, _ = get_data(fname)
+            fs = attr['Fsamp']
+            xdata = cdat[:,x_idx]
 
-#             if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
-#                 step_impulse = predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False)     
-#                 xdata -= step_impulse
+            if(subtract_sine_step): ## remove the impulse caused by the sine wave step from the drive
+                step_impulse = predict_step_impulse(cdat, fs, omega0, gamma, make_plots=False)     
+                xdata -= step_impulse
 
 
-#             corr_data = np.abs(sp.correlate(xdata, phi_t, mode='same'))
+            corr_data = np.abs(sp.correlate(xdata, phi_t, mode='same'))
 
-#             impulse_cent = get_impulse_cents(cdat, fs, time_offset=time_offset, pulse_data=pulse_data, 
-#                                              drive_idx=drive_idx, drive_freq = 120)
+            impulse_cent = get_impulse_cents(cdat, fs, time_offset=time_offset, pulse_data=pulse_data, 
+                                             drive_idx=drive_idx, drive_freq = 120)
 
-#             corr_vals = []
-#             corr_idx = []
-#             idx_offsets = []
-#             wind=30
-#             for ic in impulse_cent:
-#                 current_search = corr_data[(ic-wind):(ic+wind)]
-#                 corr_vals.append(np.max(current_search))
-#                 corr_idx.append(ic-wind+np.argmax(current_search))
-#                 idx_offsets.append( np.argmax(current_search) - wind)
-#             filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
-#             filt_dict[off_key] = np.hstack((filt_dict[off_key], idx_offsets))
+            corr_vals = []
+            corr_idx = []
+            idx_offsets = []
+            wind=30
+            for ic in impulse_cent:
+                current_search = corr_data[(ic-wind):(ic+wind)]
+                corr_vals.append(np.max(current_search))
+                corr_idx.append(ic-wind+np.argmax(current_search))
+                idx_offsets.append( np.argmax(current_search) - wind)
+            filt_dict[impulse_amp] = np.hstack((filt_dict[impulse_amp], corr_vals))
+            filt_dict[off_key] = np.hstack((filt_dict[off_key], idx_offsets))
 
-#             if(make_plots):
-#                 fstr = str.split(fname,'/')[-1]
-#                 sfac = cal_fac
-#                 plt.figure(figsize=(15,3))
-#                 plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]) * cal_fac)
-#                 plt.plot(np.abs(corr_data*sfac) )
-#                 plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
-#                 plt.xlim(0,3e5)
-#                 #plt.xlim(5000, 7500)
-#                 #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
-#                 plt.ylim(0,2000)
-#                 plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
+            if(make_plots):
+                fstr = str.split(fname,'/')[-1]
+                sfac = cal_fac
+                plt.figure(figsize=(15,3))
+                plt.plot(cdat[:,drive_idx]/np.max(cdat[:,drive_idx]) * cal_fac)
+                plt.plot(np.abs(corr_data*sfac) )
+                plt.plot(corr_idx, np.abs(corr_vals)*sfac, 'ro')
+                plt.xlim(0,3e5)
+                #plt.xlim(5000, 7500)
+                #plt.xlim(impulse_cent[0]-1000, impulse_cent[0]+1000)
+                plt.ylim(0,2000)
+                plt.title("opt filt: " + str(impulse_amp) + ", " + fstr)
 
-#     return filt_dict, phi_t
-
+    return filt_dict, phi_t
 
 def optimal_filt_1D(calib_dict, template_dict, noise_dict, pulse_data=True, time_offset=0, 
                  cal_fac=1, drive_idx=drive_idx, do_lp_filt=False, wind=10, 
