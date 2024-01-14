@@ -2764,11 +2764,11 @@ def plot_impulse_with_recon_3D(data, attributes, template_dict, noise_dict, xran
                 ax1.set_ylim(ylim_nm[0]/ylim_nm[1] * ax2y2, ax2y2)
                 yy = ax2.get_ylim()
                 if(i==2):
-                    scale_fac = 1.5
+                    scale_fac = 3 #1.5
                     ax2.set_ylim(-0.7*ylim_nm_z[1]*scale_fac, ylim_nm_z[1]*scale_fac)
                     ax1.set_ylim(-0.7*ax2y2*1.5, ax2y2*1.5)
                     ax1.yaxis.labelpad = -7
-                    ax2.set_yticks([0,25])
+                    ax2.set_yticks([0,50])
                 else:
                     ax2.set_ylim(ylim_nm[0], ylim_nm[1])
 
